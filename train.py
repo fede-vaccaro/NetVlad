@@ -1,10 +1,17 @@
 # %%
+import tensorflow as tf
 
-from keras.callbacks import ModelCheckpoint
-from keras.preprocessing import image
-from keras.applications.vgg16 import preprocess_input
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
+tf.config.experimental.set_memory_growth(physical_devices[0], False)
+
 import os
+
 import numpy as np
+from keras.applications.vgg16 import preprocess_input
+from keras.preprocessing import image
+
+from loupe_keras import NetVLAD
 
 
 def get_imlist(path):
@@ -52,29 +59,33 @@ negatives = np.array(negatives)
 
 # create model
 from keras.applications import VGG16
-
-embedding_size = 512
+from keras.models import Model
 
 input_shape = (224, 224, 3)
 
-vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
+# vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
+vgg = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
 
 for layer in vgg.layers:
     layer.trainable = False
     # print(layer, layer.trainable)
+    # if layer.name is 'block5_conv3':
+    #    layer.trainable = True
 
-vgg.layers.pop(0)
+# vgg = Model(vgg.input, vgg.get_layer('block5_conv3').output)
+
+vgg.layers.pop()
+# vgg.layers.pop(0)
+
 vgg.summary()
 
 # %%
 
 # set layers untrainable
-from keras.models import Model
-from keras.layers import Input, Dense, Dropout, Reshape, Permute
+from keras.layers import Input, Dense, Reshape
 from keras.optimizers import Adam
 from keras.utils import plot_model
-from triplet_loss import L2NormLayer, Transpose
-from loupe_keras import NetVLAD
+from triplet_loss import L2NormLayer
 
 input_q = Input(shape=(224, 224, 3))
 input_p = Input(shape=(224, 224, 3))
@@ -84,20 +95,33 @@ vgg_q = vgg(input_q)
 vgg_p = vgg(input_p)
 vgg_n = vgg(input_n)
 
-resnet_output = vgg.output_shape[1]
+# transpose = Permute((3, 1, 2), input_shape=(-1, 512))
+embedding_size = 512
 
-transpose = Permute((3, 1, 2), input_shape=(7, 7, 512))
-reshape = Reshape((2048, 7 * 7))
-netvlad = NetVLAD(feature_size=7 * 7, max_samples=512, cluster_size=64)#, output_dim=1024)
-"""l2normalization = L2NormLayer()
+vgg_output = vgg.output_shape[1]
+embedding = Dense(embedding_size, input_shape=(vgg_output,), activation='relu', name="embedding1")
+reshape = Reshape((8, 8 * 8))
+netvlad = NetVLAD(feature_size=8 * 8, max_samples=8, cluster_size=64,
+                  output_dim=1024)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
+
+l2normalization = L2NormLayer()
+"""
 dropout = Dropout(0.1)
 """
 
 # %%
 
-embedding_q = netvlad(reshape(transpose(vgg_q)))
-embedding_p = netvlad(reshape(transpose(vgg_p)))
-embedding_n = netvlad(reshape(transpose(vgg_n)))
+
+# embedding_q = (embedding(l2normalization(vgg_q)))
+# embedding_p = (embedding(l2normalization(vgg_p)))
+# embedding_n = (embedding(l2normalization(vgg_n)))
+
+
+vgg.summary()
+
+embedding_q = netvlad(reshape(embedding(vgg_q)))
+embedding_p = netvlad(reshape(embedding(vgg_p)))
+embedding_n = netvlad(reshape(embedding(vgg_n)))
 
 vgg_qpn = Model([input_q, input_p, input_n], [embedding_q, embedding_p, embedding_n])
 
@@ -113,7 +137,8 @@ result = vgg_qpn.predict([queries[:1], positives[:1], negatives[:1]])
 # %%
 
 all_data_len = len(img_dict.keys())
-n_train = 1200
+n_train = all_data_len
+# n_train = 400
 
 fake_true_pred = np.zeros((n_train, embedding_size * 3))
 fake_true_pred_val = np.zeros((all_data_len - n_train, embedding_size * 3))
@@ -127,41 +152,42 @@ positives_test = positives[n_train:]
 negatives_test = negatives[n_train:]
 
 # %%
-
-from triplet_loss import TripletLossLayer
-
-batch_size = 128
-epochs = 32
-
-# train session
-opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
-
-loss_layer = TripletLossLayer(alpha=.1, name='triplet_loss_layer')(vgg_qpn.output)
-vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
-vgg_qpn.compile(optimizer=opt)
-
-# %%
-
-H = vgg_qpn.fit(
-    x=[queries_train, positives_train, negatives_train],
-    y=None,
-    batch_size=batch_size,
-    epochs=epochs,
-    validation_data=([queries_test, positives_test, negatives_test], None),
-    verbose=1,
-)
-
 import matplotlib.pyplot as plt
 
-vgg_qpn.save_weights("model.h5")
-print("Saved model to disk")
+train = True
+if train:
+    from triplet_loss import TripletLossLayer
 
-plt.figure(figsize=(8, 8))
-plt.plot(H.history['loss'], label='training loss')
-plt.plot(H.history['val_loss'], label='validation loss')
-plt.legend()
-plt.title('Train/validation loss')
-plt.show()
+    batch_size = 16
+    epochs = 16
+
+    # train session
+    opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
+
+    loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_qpn.output)
+    vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
+    vgg_qpn.compile(optimizer=opt)
+
+    # %%
+
+    H = vgg_qpn.fit(
+        x=[queries_train, positives_train, negatives_train],
+        y=None,
+        batch_size=batch_size,
+        epochs=epochs,
+        # validation_data=([queries_test, positives_test, negatives_test], None),
+        verbose=1,
+    )
+
+    vgg_qpn.save_weights("model.h5")
+    print("Saved model to disk")
+
+    plt.figure(figsize=(8, 8))
+    plt.plot(H.history['loss'], label='training loss')
+    # plt.plot(H.history['val_loss'], label='validation loss')
+    plt.legend()
+    plt.title('Train/validation loss')
+    plt.show()
 
 # %%
 
@@ -230,6 +256,11 @@ img_tensor = np.array(img_tensor)
 vgg_qpn.summary()
 all_feats, _, _ = vgg_qpn.predict([img_tensor, np.zeros(img_tensor.shape), np.zeros(img_tensor.shape)])
 
+plt.imshow(all_feats, cmap='viridis')
+plt.colorbar()
+plt.grid(False)
+plt.show()
+
 # %%
 
 query_feats = all_feats[query_imids]
@@ -283,3 +314,72 @@ def mAP(q_ids, idx):
 print('mean AP = %.3f' % mAP(query_imids, indices))
 perfect_result = make_perfect_holidays_result(imnames, query_imids)
 print('Perfect mean AP = %.3f' % mAP(query_imids, perfect_result))
+
+import PIL
+
+import math
+
+
+def montage(imfiles, thumb_size=(100, 100), ok=None, shape=None):
+    # this function will create an image with thumbnailed version of imfiles.
+    # optionally the user can provide an ok list such that len(ok)==len(imfiles) to differentiate correct from wrong results
+    # optionally the user can provide a shape function which shapes the montage otherwise a square image is created.
+    images = [PIL.Image.open(imname).resize(thumb_size, PIL.Image.BILINEAR) for imname in imfiles]
+    # create a big image to contain all images
+    if shape is None:
+        n = int(math.sqrt(len(imfiles)))
+        m = n
+    else:
+        n = shape[0]
+        m = shape[1]
+    new_im = PIL.Image.new('RGB', (m * thumb_size[0], n * thumb_size[0]))
+    k = 0
+    for i in range(0, n * thumb_size[0], thumb_size[0]):
+        for j in range(0, m * thumb_size[0], thumb_size[0]):
+            region = (j, i)
+            if ok is not None:
+                if ok[k]:
+                    color = (0, 255, 0)
+                else:
+                    color = (255, 0, 0)
+                if k > 0:
+                    imar = np.array(images[k], dtype=np.uint8)
+                    imar[0:5, :, :] = color
+                    imar[:, 0:5, :] = color
+                    imar[-5:, :, :] = color
+                    imar[:, -5:, :] = color
+                    images[k] = PIL.Image.fromarray(imar)
+            new_im.paste(images[k], box=region)
+            k += 1
+    return new_im
+
+
+# %%
+
+# here we show the first 25 queries and their 15 closest neighbours retrieved
+# gree border means ok, red wrong :)
+def show_result(display_idx, nqueries=10, nresults=10, ts=(100, 100)):
+    if nqueries is not None:
+        nrow = nqueries  # number of query images to show
+
+    if nresults is not None:
+        nres = 10  # number of results per query
+
+    for qno in range(nrow):
+        imfiles = []
+        oks = [True]
+        # show query image with white outline
+        qimno = query_imids[qno]
+        imfiles.append('holidays_small/' + imnames[qimno] + '.jpg')
+        for qres in display_idx[qno, :nres]:
+            # use image name to determine if it is a TP or FP result
+            oks.append(imnames[qres][:4] == imnames[qimno][:4])
+            imfiles.append('holidays_small/' + imnames[qres] + '.jpg')
+        print(qno, (imfiles))
+        plt.imshow(montage(imfiles, thumb_size=ts, ok=oks, shape=(1, nres)))
+        plt.show()
+
+
+# %%
+
+show_result(indices, nqueries=50)

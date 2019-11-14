@@ -67,113 +67,17 @@ class ContextGating(layers.Layer):
         return tuple(input_shape)
 
 
-class NetVLADS(layers.Layer):
-    """Creates a NetVLAD class.
-    """
-
-    def __init__(self, feature_size, max_samples, cluster_size, output_dim, **kwargs):
-        self.feature_size = feature_size
-        self.cluster_size = cluster_size
-        # self.input_spec = InputSpec(min_ndim=2)
-        super(NetVLADS, self).__init__(**kwargs)
-
-    def build(self, input_shape):
-        # Create a trainable weight variable for this layer.
-        self.cluster_weights = self.add_weight(name='kernel_W1',
-                                               shape=(self.feature_size, self.cluster_size),
-                                               trainable=True)
-        """self.cluster_biases = self.add_weight(name='kernel_B1',
-                                              shape=(self.cluster_size,),
-                                              initializer=tf.random_normal_initializer(
-                                                  stddev=1 / math.sqrt(self.feature_size)),
-                                              trainable=True)
-        self.cluster_weights2 = self.add_weight(name='kernel_W2',
-                                                shape=(1, self.feature_size, self.cluster_size),
-                                                initializer=tf.random_normal_initializer(
-                                                    stddev=1 / math.sqrt(self.feature_size)),
-                                                trainable=True)
-        self.hidden1_weights = self.add_weight(name='kernel_H1',
-                                               shape=(self.cluster_size * self.feature_size, self.output_dim),
-                                               initializer=tf.random_normal_initializer(
-                                                   stddev=1 / math.sqrt(self.cluster_size)),
-                                               trainable=True)
-        """
-        # input_dim = input_shape[-1]
-
-        # self.input_spec = InputSpec(min_ndim=2, axes={-1: input_dim})
-        # self.built = True
-        super(NetVLADS, self).build(input_shape)  # Be sure to call this at the end
-
-    def call(self, inputs):
-        """Forward pass of a NetVLAD block.
-
-        Args:
-        reshaped_input: If your input is in that form:
-        'batch_size' x 'max_samples' x 'feature_size'
-        It should be reshaped in the following form:
-        'batch_size*max_samples' x 'feature_size'
-        by performing:
-        reshaped_input = tf.reshape(input, [-1, features_size])
-
-        Returns:
-        vlad: the pooled vector of size: 'batch_size' x 'output_dim'
-        """
-        """
-        In Keras, there are two way to do matrix multiplication (dot product)
-        1) K.dot : AxB -> when A has batchsize and B doesn't, use K.dot
-        2) tf.matmul: AxB -> when A and B both have batchsize, use tf.matmul
-
-        Error example: Use tf.matmul when A has batchsize (3 dim) and B doesn't (2 dim)
-        ValueError: Shape must be rank 2 but is rank 3 for 'net_vlad_1/MatMul' (op: 'MatMul') with input shapes: [?,21,64], [64,3]
-
-        tf.matmul might still work when the dim of A is (?,64), but this is too confusing.
-        Just follow the above rules.
-        """
-
-        fs = self.feature_size
-        reshaped_input = tf.reshape(inputs, [-1, fs])
-
-        activation = K.dot(reshaped_input, self.cluster_weights)
-
-        activation += self.cluster_biases
-
-        activation = tf.nn.softmax(activation)
-
-        activation = tf.reshape(activation,
-                                [-1, self.max_samples, self.cluster_size])
-
-        a_sum = tf.reduce_sum(activation, -2, keep_dims=True)
-
-        a = tf.multiply(a_sum, self.cluster_weights2)
-
-        activation = tf.transpose(activation, perm=[0, 2, 1])
-
-        reshaped_input = tf.reshape(reshaped_input, [-1,
-                                                     self.max_samples, self.feature_size])
-
-        vlad = tf.matmul(activation, reshaped_input)
-        vlad = tf.transpose(vlad, perm=[0, 2, 1])
-        vlad = tf.subtract(vlad, a)
-        vlad = tf.nn.l2_normalize(vlad, 1)
-        vlad = tf.reshape(vlad, [-1, self.cluster_size * self.feature_size])
-        vlad = tf.nn.l2_normalize(vlad, 1)
-        vlad = K.dot(vlad, self.hidden1_weights)
-
-        return vlad
-
-    def compute_output_shape(self, input_shape):
-        return tuple([None, self.output_dim])
-
 
 class NetVLAD(layers.Layer):
     """Creates a NetVLAD class.
     """
 
-    def __init__(self, feature_size, max_samples, cluster_size, **kwargs):
+    def __init__(self, feature_size, max_samples, cluster_size, output_dim, **kwargs):
         self.feature_size = feature_size
         self.max_samples = max_samples
         #self.output_dim = output_dim
         self.cluster_size = cluster_size
+        self.output_dim = output_dim
         super(NetVLAD, self).__init__(**kwargs)
 
     def build(self, input_shape):
@@ -193,7 +97,8 @@ class NetVLAD(layers.Layer):
                                                 initializer=keras.initializers.random_normal(
                                                     stddev=1 / math.sqrt(self.feature_size)),
                                                 trainable=True)
-        """self.hidden1_weights = self.add_weight(name='kernel_H1',
+        """ 
+        self.hidden1_weights = self.add_weight(name='kernel_H1',
                                                shape=(self.cluster_size * self.feature_size, self.output_dim),
                                                initializer=keras.initializers.random_normal(
                                                    stddev=1 / math.sqrt(self.cluster_size)),
@@ -201,7 +106,7 @@ class NetVLAD(layers.Layer):
         """
         super(NetVLAD, self).build(input_shape)  # Be sure to call this at the end
 
-    def call(self, inputs):
+    def call(self, reshaped_input):
         """Forward pass of a NetVLAD block.
 
         Args:
@@ -227,31 +132,51 @@ class NetVLAD(layers.Layer):
         Just follow the above rules.
         """
 
-        fs = self.feature_size
-        reshaped_input = tf.reshape(inputs, [-1, fs])
+
+        # n sample = S = 512
+        # feature size = 196 = D
+        # cluster_weights 1/2 = (196 x N_Cluster) = (D x K)
+
+        # input : n_feature x feature_size = (S x D)
 
         activation = K.dot(reshaped_input, self.cluster_weights)
+        # activation = (S x D) * (D x K) = S x K ; ogni riga è un descrittore, ogni colonna un cluster =>
+        # l'elemento (s,k) è un indice di appartenenza della feature locale s al cluster k
 
         activation += self.cluster_biases
 
         activation = tf.nn.softmax(activation)
 
-        activation = tf.reshape(activation,
-                                [-1, self.max_samples, self.cluster_size])
+        # da S x K a... ????
+        #activation = tf.reshape(activation,
+        #                        [-1, self.max_samples, self.cluster_size])
 
+        # dovrebbe da b x S x K ===> b x 1 x K
+        # -2 è equivalente a 1 ? in tal caso è giusto come scritto sopra
         a_sum = tf.math.reduce_sum(activation, -2, keepdims=True)
 
+        # moltiplica le attivazioni ai centroidi effettivi
+        # (1 x K) *wise (D x K) => D x K
         a = tf.math.multiply(a_sum, self.cluster_weights2)
 
+        # cambia le attivazioni da b x S x K => b x K x S
         activation = tf.transpose(activation, perm=[0, 2, 1])
 
-        reshaped_input = tf.reshape(reshaped_input, [-1,
-                                                     self.max_samples, self.feature_size])
+        # b x S x D => b x S x D (inutile)
+        #reshaped_input = tf.reshape(reshaped_input, [-1,
+        #                                             self.max_samples, self.feature_size])
 
+        # (K x S)*(S x D) => (K x D)
         vlad = tf.matmul(activation, reshaped_input)
+
+        # b x K x D => b x D x K
         vlad = tf.transpose(vlad, perm=[0, 2, 1])
+
+        # (b x D x K) - (b x D x K) # calcola x*act - c*act
         vlad = tf.subtract(vlad, a)
-        vlad = tf.nn.l2_normalize(vlad, 1)
+
+
+        vlad = tf.nn.l2_normalize(vlad, 2)
         vlad = tf.reshape(vlad, [-1, self.cluster_size * self.feature_size])
         vlad = tf.nn.l2_normalize(vlad, 1)
         #vlad = K.dot(vlad, self.hidden1_weights)
@@ -278,7 +203,7 @@ class NetRVLAD(layers.Layer):
         self.cluster_weights = self.add_weight(name='kernel_W1',
                                                shape=(self.feature_size, self.cluster_size),
                                                initializer=tf.random_normal_initializer(
-                                                   stddev=1 / math.sqrt(self.feature_size)),
+                                                   stddev=10.),
                                                trainable=True)
         self.cluster_biases = self.add_weight(name='kernel_B1',
                                               shape=(self.cluster_size,),
