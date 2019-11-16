@@ -1,15 +1,3 @@
-import math
-import random
-
-import PIL
-import PIL.Image
-import matplotlib.pyplot as plt
-import numpy as np
-from keras.applications import vgg16
-from keras.applications.vgg16 import VGG16
-from keras.preprocessing import image
-from sklearn.neighbors import NearestNeighbors
-
 path = "eval_holidays/perfect_result.dat"
 
 f = open(path, 'r')
@@ -34,13 +22,27 @@ for line in lines:
     lines_no_indices.append(new_line)
 lines = lines_no_indices
 
-all_images = {}
+all_images = []
 
 for i, line in enumerate(lines):
     line_index = i
     for j, img in enumerate(line):
-        is_query = (j is 0)
-        all_images[img] = (i, is_query)
+        tuple_ = (img, line[0], line_index)
+        if j is not 0:
+            all_images.append(tuple_)
+        else:
+            all_images.insert(0, tuple_)
+
+# output triplets
+triplets_file = open("labeled.dat", 'w')
+for img in all_images:
+    str_ = ""
+    for t in img:
+        str_ += str(t) + " "
+    triplets_file.write(str_ + "\n")
+triplets_file.close()
+
+"""
 
 # open images
 input_shape = (224, 224, 3)
@@ -59,7 +61,6 @@ def images_to_tensor(imnames):
     print(images_array.shape)
     # images_array = preprocess_input(images_array)
     return images_array
-
 
 keys = all_images.keys()
 im_tensor = images_to_tensor(keys)
@@ -178,3 +179,4 @@ if show_triplets:
         montage_im = montage(imfiles, thumb_size=(100, 100), ok=[True, True, False], shape=(1, 3))
         plt.imshow(montage_im)
         plt.show()
+"""
