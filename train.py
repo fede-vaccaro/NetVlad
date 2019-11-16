@@ -69,7 +69,7 @@ vgg = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=in
 for layer in vgg.layers:
     layer.trainable = False
     # print(layer, layer.trainable)
-    # if layer.name is 'block5_conv3':
+    #if layer.name is 'block5_conv3':
     #    layer.trainable = True
 
 # vgg = Model(vgg.input, vgg.get_layer('block5_conv3').output)
@@ -82,7 +82,7 @@ vgg.summary()
 # %%
 
 # set layers untrainable
-from keras.layers import Input, Dense, Reshape
+from keras.layers import Input, Dense, Reshape, Dropout
 from keras.optimizers import Adam
 from keras.utils import plot_model
 from triplet_loss import L2NormLayer
@@ -100,14 +100,12 @@ embedding_size = 512
 
 vgg_output = vgg.output_shape[1]
 embedding = Dense(embedding_size, input_shape=(vgg_output,), activation='relu', name="embedding1")
-reshape = Reshape((8, 8 * 8))
+reshape = Reshape((4, 8 * 8))
 netvlad = NetVLAD(feature_size=8 * 8, max_samples=8, cluster_size=64,
                   output_dim=1024)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
 
 l2normalization = L2NormLayer()
-"""
-dropout = Dropout(0.1)
-"""
+dropout = Dropout(0.)
 
 # %%
 
@@ -137,8 +135,8 @@ result = vgg_qpn.predict([queries[:1], positives[:1], negatives[:1]])
 # %%
 
 all_data_len = len(img_dict.keys())
-n_train = all_data_len
-# n_train = 400
+#n_train = all_data_len
+n_train = 500
 
 fake_true_pred = np.zeros((n_train, embedding_size * 3))
 fake_true_pred_val = np.zeros((all_data_len - n_train, embedding_size * 3))
@@ -159,7 +157,7 @@ if train:
     from triplet_loss import TripletLossLayer
 
     batch_size = 16
-    epochs = 16
+    epochs = 32
 
     # train session
     opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
@@ -175,7 +173,7 @@ if train:
         y=None,
         batch_size=batch_size,
         epochs=epochs,
-        # validation_data=([queries_test, positives_test, negatives_test], None),
+        validation_data=([queries_test, positives_test, negatives_test], None),
         verbose=1,
     )
 
@@ -184,7 +182,7 @@ if train:
 
     plt.figure(figsize=(8, 8))
     plt.plot(H.history['loss'], label='training loss')
-    # plt.plot(H.history['val_loss'], label='validation loss')
+    plt.plot(H.history['val_loss'], label='validation loss')
     plt.legend()
     plt.title('Train/validation loss')
     plt.show()
