@@ -51,13 +51,13 @@ for line in labeled_file.readlines():
 
     images.append(img_dict[split[0]])
     label_index = int(split[2])
-    #label = np.zeros(n_queries)
-    #label[label_index] = 1.0
-    labels.append(label_index)
+    label = np.zeros(n_queries)
+    label[label_index] = 1
+    labels.append(label)
 
 images = np.array(images)
 labels = np.array(labels).astype('int32')
-
+print(labels.shape)
 #%%
 
 # create model
@@ -91,7 +91,7 @@ from keras.utils import plot_model
 from triplet_loss import L2NormLayer
 
 images_input = Input(shape=(224, 224, 3))
-label_input = Input(shape=(1,),name="input_label")
+label_input = Input(shape=(n_queries,),name="input_label")
 
 # transpose = Permute((3, 1, 2), input_shape=(-1, 512))
 embedding_size = 512
@@ -144,9 +144,9 @@ labels_test = labels[:n_queries]
 #%%
 import matplotlib.pyplot as plt
 
-train = True
+train = False
 if train:
-    from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf
+    from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
     #from triplet_loss_ import batch_hard_triplet_loss_k
     batch_size = 256
     epochs = 96
@@ -156,10 +156,10 @@ if train:
 
     #loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
     #vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
-    vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf)
+    vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
 
-    dummy_gt_train = np.zeros((len(images_train), netvlad_output + 1))
-    dummy_gt_val = np.zeros((len(images_test), netvlad_output + 1))
+    dummy_gt_train = np.zeros((len(images_train), netvlad_output + n_queries))
+    dummy_gt_val = np.zeros((len(images_test), netvlad_output + n_queries))
 
     # %%
 
@@ -250,9 +250,9 @@ vgg_netvlad.load_weights("model.h5")
 
 # %%
 vgg_netvlad.summary()
-all_feats = vgg_netvlad.predict([img_tensor, np.zeros(len(img_tensor))])
+all_feats = vgg_netvlad.predict([img_tensor, np.zeros((len(img_tensor), n_queries))])
 
-all_feats = all_feats[:,1:]
+all_feats = all_feats[:, n_queries:]
 
 plt.imshow(all_feats, cmap='viridis')
 plt.colorbar()
