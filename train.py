@@ -1,5 +1,7 @@
-#%%
+# %%
 import tensorflow as tf
+
+from open_flickr import generate_index, image_generator
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
@@ -31,19 +33,18 @@ def create_image_dict(img_list):
     return tensor
 
 
-#%%
+# %%
 
 img_dict = create_image_dict(get_imlist('holidays_small'))
 img_dict.keys()
 
-#%%
+# %%
 
 n_queries = 500
 
 # create dataset
 images = []
 labels = []
-
 
 labeled_file = open("labeled.dat", "r")
 for line in labeled_file.readlines():
@@ -58,7 +59,7 @@ for line in labeled_file.readlines():
 images = np.array(images)
 labels = np.array(labels).astype('int32')
 print(labels.shape)
-#%%
+# %%
 
 # create model
 from keras.applications import VGG16
@@ -73,45 +74,53 @@ vgg = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=in
 for layer in vgg.layers:
     layer.trainable = False
     # print(layer, layer.trainable)
-    #if layer.name is 'block5_conv3':
+    # if layer.name is 'block5_conv3':
     #    layer.trainable = True
 
 # vgg = Model(vgg.input, vgg.get_layer('block5_conv3').output)
 
-#vgg.layers.pop()
+# vgg.layers.pop()
 # vgg.layers.pop(0)
 
 vgg.summary()
 
-#%%
+# %%
 
 from keras.layers import Input, Dense, Reshape, Dropout, concatenate
 from keras.optimizers import Adam
 from keras.utils import plot_model
 from triplet_loss import L2NormLayer
+import triplet_loss
 
 images_input = Input(shape=(224, 224, 3))
-label_input = Input(shape=(n_queries,),name="input_label")
+
+dict, classes = generate_index('mirflickr_annotations')
+files = ["mirflickr/" + k for k in list(dict.keys())]
+
+n_classes = len(classes)
+
+triplet_loss.N_LABELS = n_classes
+
+label_input = Input(shape=(n_classes,), name="input_label")
 
 # transpose = Permute((3, 1, 2), input_shape=(-1, 512))
 embedding_size = 512
 
 vgg_output = vgg.output_shape[1]
-embedding = Dense(embedding_size, input_shape=(vgg_output,), activation='relu', name="embedding1")(vgg([images_input]))
+embedding = Dense(embedding_size, input_shape=(vgg_output,), activation=None, name="embedding1")(vgg([images_input]))
 reshape = Reshape((8, 8 * 8))(embedding)
 netvlad = NetVLAD(feature_size=8 * 8, max_samples=8, cluster_size=64,
                   output_dim=1024)(reshape)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
 
-netvlad_output = 8*8*64
+netvlad_output = 8 * 8 * 64
 
 l2normalization = L2NormLayer()
 dropout = Dropout(0.)
 
-#%%
+# %%
 
-#embedding_output = netvlad(reshape(embedding(vgg.output)))
+# embedding_output = netvlad(reshape(embedding(vgg.output)))
 labels_plus_embeddings = concatenate([label_input, netvlad])
-
 
 vgg_netvlad = Model(inputs=[images_input, label_input], outputs=labels_plus_embeddings)
 
@@ -120,15 +129,15 @@ vgg_netvlad = Model(inputs=[images_input, label_input], outputs=labels_plus_embe
 plot_model(vgg_netvlad, to_file='base_network.png', show_shapes=True, show_layer_names=True)
 vgg_netvlad.summary()
 
-#%%
+# %%
 
-result = vgg_netvlad.predict([images[:1], labels[:1]])
+# result = vgg_netvlad.predict([images[:1], labels[:1]])
 
-#%%
+# %%
 
 all_data_len = len(img_dict.keys())
-#n_train = all_data_len
-#n_train = 500
+# n_train = all_data_len
+# n_train = 500
 
 use_all = True
 if not use_all:
@@ -141,21 +150,29 @@ else:
 images_test = images[:n_queries]
 labels_test = labels[:n_queries]
 
-#%%
+# %%
 import matplotlib.pyplot as plt
 
-train = False
+from math import ceil
+
+train = True
 if train:
+    num_samples = len(files)
+    batch_size = 128
+
+    gen = image_generator(files=files, index=dict, classes=classes, net_output=netvlad_output, batch_size=batch_size)
+
+    steps_per_epoch = ceil(num_samples / batch_size)
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
-    #from triplet_loss_ import batch_hard_triplet_loss_k
-    batch_size = 256
-    epochs = 96
+
+    # from triplet_loss_ import batch_hard_triplet_loss_k
+    epochs = 32
 
     # train session
     opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
 
-    #loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
-    #vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
+    # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
+    # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
     vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
 
     dummy_gt_train = np.zeros((len(images_train), netvlad_output + n_queries))
@@ -163,6 +180,7 @@ if train:
 
     # %%
 
+    """
     H = vgg_netvlad.fit(
         x=[images_train, labels_train],
         y=dummy_gt_train,
@@ -170,19 +188,21 @@ if train:
         epochs=epochs,
         #validation_data=([images_test, labels_test], dummy_gt_val),
         verbose=1,
-    )
+    )"""
+
+    H = vgg_netvlad.fit_generator(generator=gen, steps_per_epoch=steps_per_epoch, epochs=epochs)
 
     vgg_netvlad.save_weights("model.h5")
     print("Saved model to disk")
 
     plt.figure(figsize=(8, 8))
     plt.plot(H.history['loss'], label='training loss')
-    #plt.plot(H.history['val_loss'], label='validation loss')
+    # plt.plot(H.history['val_loss'], label='validation loss')
     plt.legend()
     plt.title('Train/validation loss')
     plt.show()
 
-#%%
+# %%
 
 # pop triplet loss layer
 # resnet_qpn_no_loss = Model(input=resnet_qpn.input, outputs=resnet_qpn.output)
@@ -193,11 +213,11 @@ if train:
 # %%
 
 # reload model from disk
-#vgg_qpn = Model([input_q, input_p, input_n], [embedding_q, embedding_p, embedding_n])
+# vgg_qpn = Model([input_q, input_p, input_n], [embedding_q, embedding_p, embedding_n])
 
-#vgg_qpn.load_weights('model.h5')
+# vgg_qpn.load_weights('model.h5')
 
-result = vgg_netvlad.predict([images[:1], labels[:1]])
+# result = vgg_netvlad.predict([images[:1], labels[:1]])
 # %%
 
 # test model
@@ -247,12 +267,13 @@ img_tensor = np.array(img_tensor)
 
 vgg_netvlad.load_weights("model.h5")
 
+vgg_netvlad_output = Model(inputs=vgg_netvlad.get_layer('input_2').input, outputs=vgg_netvlad.get_layer('net_vlad_1').output)
 
 # %%
-vgg_netvlad.summary()
-all_feats = vgg_netvlad.predict([img_tensor, np.zeros((len(img_tensor), n_queries))])
+vgg_netvlad_output.summary()
+all_feats = vgg_netvlad_output.predict(img_tensor)
 
-all_feats = all_feats[:, n_queries:]
+#all_feats = all_feats[:, n_queries:]
 
 plt.imshow(all_feats, cmap='viridis')
 plt.colorbar()

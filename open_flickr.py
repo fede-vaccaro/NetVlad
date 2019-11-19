@@ -19,6 +19,26 @@ def open_img(path):
 
     return img, img_id
 
+import random
+
+def shuffle_dict(dictionary):
+    all_keys = list(dictionary.keys())
+    random.shuffle(all_keys)
+    new_dict = {}
+    for k in all_keys:
+        new_dict[k] = dictionary[k]
+    return new_dict
+
+
+def split_dict(dictionary, alpha=0.9):
+    all_items = dictionary.items()
+    n_items = len(all_items)
+    train_size = int(n_items*alpha)
+
+    train_set = dict(all_items[:train_size])
+    test_set = dict(all_items[train_size:])
+
+    return test_set, train_set
 
 def image_generator(files, index, classes, net_output, batch_size = 64):
     while True:
@@ -42,8 +62,8 @@ def image_generator(files, index, classes, net_output, batch_size = 64):
         x_batch = np.array(x_batch)
         label_batch = np.array(label_batch)
 
-        label_cross = np.dot(label_batch, label_batch.T)
-        label_cross_bool = label_cross.astype('bool')
+        #label_cross = np.dot(label_batch, label_batch.T)
+        #label_cross_bool = label_cross.astype('bool')
 
         yield([x_batch, label_batch], y_batch)
 
@@ -69,6 +89,8 @@ def generate_index(path):
 
     return images_dict, values
 
+
+"""
 dict, classes = generate_index('mirflickr_annotations')
 print(len(dict.keys()))
 print(classes)
@@ -83,3 +105,4 @@ for el in gen:
     #print(x_batch.shape, label_batch.shape, y_batch.shape)
     #time.sleep(1)
 
+"""
