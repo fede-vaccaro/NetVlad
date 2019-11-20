@@ -139,7 +139,7 @@ N_LABELS = 500
 
 def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
     del y_true
-    margin = 1.
+    margin = .1
     labels = y_pred[:, :N_LABELS]
 
     labels = tf.cast(labels, dtype='int32')

@@ -1,5 +1,7 @@
 #%%
 import tensorflow as tf
+import matplotlib.pyplot as plt
+
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
@@ -44,7 +46,6 @@ n_queries = 500
 images = []
 labels = []
 
-
 labeled_file = open("labeled.dat", "r")
 for line in labeled_file.readlines():
     split = line.split(" ")[:3]
@@ -58,11 +59,14 @@ for line in labeled_file.readlines():
 images = np.array(images)
 labels = np.array(labels).astype('int32')
 print(labels.shape)
+
 #%%
 
 # create model
 from keras.applications import VGG16
 from keras.models import Model
+from keras import activations
+import vis.utils.utils
 
 input_shape = (224, 224, 3)
 
@@ -73,49 +77,105 @@ vgg = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=in
 for layer in vgg.layers:
     layer.trainable = False
     # print(layer, layer.trainable)
-    #if layer.name is 'block5_conv3':
-    #    layer.trainable = True
+    if layer.name is 'block5_conv2':
+        layer.trainable = True
 
-# vgg = Model(vgg.input, vgg.get_layer('block5_conv3').output)
+vgg.get_layer('block5_conv2').activation = activations.linear
+vgg = vis.utils.utils.apply_modifications(vgg)
 
-#vgg.layers.pop()
+vgg = Model(vgg.input, vgg.get_layer('block5_conv2').output)
+
+# vgg.layers.pop()
 # vgg.layers.pop(0)
 
 vgg.summary()
+#%%
+
+all_descs = vgg.predict(images)
+#%%
+import random
+
+all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
+all_descs_ = all_descs_.reshape((1491, 512, 14 * 14))
+
+locals = []
+
+for desc_matrix in all_descs_:
+    samples = random.sample(desc_matrix.tolist(), 50)
+    locals += samples
 
 #%%
 
-from keras.layers import Input, Dense, Reshape, Dropout, concatenate
+from sklearn.preprocessing import normalize
+
+locals = np.array(locals)
+locals = normalize(locals, axis=1)
+locals.shape
+
+#%%
+
+from sklearn.cluster import MiniBatchKMeans
+
+n_clust = 64
+kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
+
+#%%
+
+from keras.layers import Input, Dense, Reshape, Dropout, concatenate, Permute
 from keras.optimizers import Adam
 from keras.utils import plot_model
 from triplet_loss import L2NormLayer
 
 images_input = Input(shape=(224, 224, 3))
-label_input = Input(shape=(n_queries,),name="input_label")
+label_input = Input(shape=(n_queries,), name="input_label")
 
-# transpose = Permute((3, 1, 2), input_shape=(-1, 512))
+transpose = Permute((3, 1, 2), input_shape=(-1, 512))(vgg([images_input]))
 embedding_size = 512
 
-vgg_output = vgg.output_shape[1]
-embedding = Dense(embedding_size, input_shape=(vgg_output,), activation='relu', name="embedding1")(vgg([images_input]))
-reshape = Reshape((8, 8 * 8))(embedding)
-netvlad = NetVLAD(feature_size=8 * 8, max_samples=8, cluster_size=64,
-                  output_dim=1024)(reshape)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
+# vgg_output = vgg.output_shape[1]
+# embedding = Dense(embedding_size, input_shape=(vgg_output,), activation='relu', name="embedding1")(vgg([images_input]))
+reshape = Reshape((512, 14 * 14))(transpose)
+l2normalization = L2NormLayer()(reshape)
+netvlad = NetVLAD(feature_size=14 * 14, max_samples=512, cluster_size=64,
+                  output_dim=1024)(l2normalization)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
 
-netvlad_output = 8*8*64
-
-l2normalization = L2NormLayer()
+# netvlad_output = 8*8*64
+netvlad_output = 14 * 14 * 64
 dropout = Dropout(0.)
 
 #%%
 
-#embedding_output = netvlad(reshape(embedding(vgg.output)))
+# embedding_output = netvlad(reshape(embedding(vgg.output)))
 labels_plus_embeddings = concatenate([label_input, netvlad])
-
 
 vgg_netvlad = Model(inputs=[images_input, label_input], outputs=labels_plus_embeddings)
 
-# %%
+#%%
+netvlad_ = vgg_netvlad.get_layer('net_vlad_1')
+weights_netvlad = netvlad_.get_weights()
+
+#%%
+cluster_weights = kmeans.cluster_centers_
+alpha = 20.
+assignments_weights = 2. * alpha * cluster_weights
+assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)
+
+cluster_weights = cluster_weights.T
+assignments_weights = assignments_weights.T
+assignments_bias = assignments_bias.T
+
+cluster_weights = np.expand_dims(cluster_weights, axis=0)
+# assignments_weights = np.expand_dims(assignments_weights, axis=0)
+# assignments_bias = np.expand_dims(assignments_bias, axis=0)
+
+#%%
+weights_netvlad[0] = assignments_weights
+weights_netvlad[1] = assignments_bias
+weights_netvlad[2] = cluster_weights
+
+netvlad_.set_weights(weights_netvlad)
+# vis.utils.utils.apply_modifications(vgg_netvlad)
+#%%
 
 plot_model(vgg_netvlad, to_file='base_network.png', show_shapes=True, show_layer_names=True)
 vgg_netvlad.summary()
@@ -127,8 +187,8 @@ result = vgg_netvlad.predict([images[:1], labels[:1]])
 #%%
 
 all_data_len = len(img_dict.keys())
-#n_train = all_data_len
-#n_train = 500
+# n_train = all_data_len
+# n_train = 500
 
 use_all = True
 if not use_all:
@@ -142,33 +202,33 @@ images_test = images[:n_queries]
 labels_test = labels[:n_queries]
 
 #%%
-import matplotlib.pyplot as plt
 
-train = False
+train = True
 if train:
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
-    #from triplet_loss_ import batch_hard_triplet_loss_k
+
+    # from triplet_loss_ import batch_hard_triplet_loss_k
     batch_size = 256
     epochs = 96
 
     # train session
     opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
 
-    #loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
-    #vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
+    # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
+    # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
     vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
 
     dummy_gt_train = np.zeros((len(images_train), netvlad_output + n_queries))
     dummy_gt_val = np.zeros((len(images_test), netvlad_output + n_queries))
 
-    # %%
+    #%%
 
     H = vgg_netvlad.fit(
         x=[images_train, labels_train],
         y=dummy_gt_train,
         batch_size=batch_size,
         epochs=epochs,
-        #validation_data=([images_test, labels_test], dummy_gt_val),
+        # validation_data=([images_test, labels_test], dummy_gt_val),
         verbose=1,
     )
 
@@ -177,7 +237,7 @@ if train:
 
     plt.figure(figsize=(8, 8))
     plt.plot(H.history['loss'], label='training loss')
-    #plt.plot(H.history['val_loss'], label='validation loss')
+    # plt.plot(H.history['val_loss'], label='validation loss')
     plt.legend()
     plt.title('Train/validation loss')
     plt.show()
@@ -190,15 +250,15 @@ if train:
 # resnet_qpn_no_loss.summary()
 
 
-# %%
+#%%
 
 # reload model from disk
-#vgg_qpn = Model([input_q, input_p, input_n], [embedding_q, embedding_p, embedding_n])
+# vgg_qpn = Model([input_q, input_p, input_n], [embedding_q, embedding_p, embedding_n])
 
-#vgg_qpn.load_weights('model.h5')
+# vgg_qpn.load_weights('model.h5')
 
 result = vgg_netvlad.predict([images[:1], labels[:1]])
-# %%
+#%%
 
 # test model
 
@@ -239,16 +299,16 @@ query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] ==
 # check that everything is fine - expected output: "tot images = 1491, query images = 500"
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
-# %%
+#%%
 
 # img_tensor = images_to_tensor(imnames)
 img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
+#%%
 vgg_netvlad.load_weights("model.h5")
 
-
-# %%
+#%%
 vgg_netvlad.summary()
 all_feats = vgg_netvlad.predict([img_tensor, np.zeros((len(img_tensor), n_queries))])
 
@@ -259,7 +319,7 @@ plt.colorbar()
 plt.grid(False)
 plt.show()
 
-# %%
+#%%
 
 query_feats = all_feats[query_imids]
 
@@ -268,7 +328,7 @@ nbrs = NearestNeighbors(n_neighbors=1491, metric='cosine').fit(all_feats)
 distances, indices = nbrs.kneighbors(query_feats)
 
 
-# %%
+#%%
 
 def make_perfect_holidays_result(imnames, q_ids):
     perfect_idx = []
@@ -352,7 +412,7 @@ def montage(imfiles, thumb_size=(100, 100), ok=None, shape=None):
     return new_im
 
 
-# %%
+#%%
 
 # here we show the first 25 queries and their 15 closest neighbours retrieved
 # gree border means ok, red wrong :)
@@ -378,6 +438,6 @@ def show_result(display_idx, nqueries=10, nresults=10, ts=(100, 100)):
         plt.show()
 
 
-# %%
+#%%
 
 show_result(indices, nqueries=50)

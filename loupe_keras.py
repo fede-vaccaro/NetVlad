@@ -85,7 +85,7 @@ class NetVLAD(layers.Layer):
         self.cluster_weights = self.add_weight(name='kernel_W1',
                                                shape=(self.feature_size, self.cluster_size),
                                                initializer=keras.initializers.random_normal(
-                                                   stddev=1 / math.sqrt(self.feature_size)),
+                                                   stddev=math.sqrt(2) / math.sqrt(self.feature_size)),
                                                trainable=True)
         self.cluster_biases = self.add_weight(name='kernel_B1',
                                               shape=(self.cluster_size,),
@@ -176,7 +176,7 @@ class NetVLAD(layers.Layer):
         vlad = tf.subtract(vlad, a)
 
 
-        vlad = tf.nn.l2_normalize(vlad, 2)
+        vlad = tf.nn.l2_normalize(vlad, 1)
         vlad = tf.reshape(vlad, [-1, self.cluster_size * self.feature_size])
         vlad = tf.nn.l2_normalize(vlad, 1)
         #vlad = K.dot(vlad, self.hidden1_weights)
