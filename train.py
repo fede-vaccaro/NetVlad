@@ -12,34 +12,14 @@ import os
 import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
-
+from math import ceil
 from loupe_keras import NetVLAD
 
 
-def get_imlist(path):
-    return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
-
-
-def create_image_dict(img_list):
-    input_shape = (224, 224, 3)
-    tensor = {}
-    for path in img_list:
-        img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
-        img = image.img_to_array(img)
-        img = preprocess_input(img)
-        img_key = path.strip('holidays_small/')
-        tensor[img_key] = img
-    # tensor = np.array(tensor)
-    return tensor
 
 
 #%%
-
-img_dict = create_image_dict(get_imlist('holidays_small'))
-img_dict.keys()
-
-#%%
-
+"""
 n_queries = 500
 
 # create dataset
@@ -59,7 +39,7 @@ for line in labeled_file.readlines():
 images = np.array(images)
 labels = np.array(labels).astype('int32')
 print(labels.shape)
-
+"""
 #%%
 
 # create model
@@ -68,6 +48,7 @@ from keras.models import Model
 from keras import activations
 import vis.utils.utils
 
+"""
 input_shape = (224, 224, 3)
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -84,12 +65,29 @@ vgg.get_layer('block5_conv2').activation = activations.linear
 vgg = vis.utils.utils.apply_modifications(vgg)
 
 vgg = Model(vgg.input, vgg.get_layer('block5_conv2').output)
-
+"""
 # vgg.layers.pop()
 # vgg.layers.pop(0)
+import open_dataset_utils as my_utils
+index, classes = my_utils.generate_index_holidays('labeled.dat')
+files = my_utils.get_imlist('holidays_small')
 
+generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=1491)
+
+images = []
+for el in generator_nolabels:
+    [x_batch, label_batch], y_batch = el
+    images = x_batch
+    break
+
+from netvlad_model import NetVLADModel
+
+my_model = NetVLADModel()
+vgg, output_shape = my_model.get_feature_extractor()
 vgg.summary()
 #%%
+
+
 
 all_descs = vgg.predict(images)
 #%%
@@ -110,10 +108,7 @@ from sklearn.preprocessing import normalize
 
 locals = np.array(locals)
 locals = normalize(locals, axis=1)
-locals.shape
-
 #%%
-
 from sklearn.cluster import MiniBatchKMeans
 
 n_clust = 64
@@ -126,8 +121,9 @@ from keras.optimizers import Adam
 from keras.utils import plot_model
 from triplet_loss import L2NormLayer
 
+"""
 images_input = Input(shape=(224, 224, 3))
-label_input = Input(shape=(n_queries,), name="input_label")
+label_input = Input(shape=(len(classes),), name="input_label")
 
 transpose = Permute((3, 1, 2), input_shape=(-1, 512))(vgg([images_input]))
 embedding_size = 512
@@ -179,13 +175,27 @@ netvlad_.set_weights(weights_netvlad)
 
 plot_model(vgg_netvlad, to_file='base_network.png', show_shapes=True, show_layer_names=True)
 vgg_netvlad.summary()
+"""
+
+vgg_netvlad, net_output = my_model.build_netvladmodel(n_classes=len(classes), kmeans=kmeans)
 
 #%%
 
-result = vgg_netvlad.predict([images[:1], labels[:1]])
+batch_size = 256
+epochs = 96
+
+generator = my_utils.image_generator(files=files, index=index, classes=classes, net_output=net_output, batch_size=batch_size)
+
+x_batch = []
+label_batch = []
+for el in generator:
+    [x_batch, label_batch], y_batch = el
+    break
+
+result = vgg_netvlad.predict([x_batch[:1], label_batch[:1]])
 
 #%%
-
+"""
 all_data_len = len(img_dict.keys())
 # n_train = all_data_len
 # n_train = 500
@@ -200,7 +210,7 @@ else:
 
 images_test = images[:n_queries]
 labels_test = labels[:n_queries]
-
+"""
 #%%
 
 train = True
@@ -208,8 +218,7 @@ if train:
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
 
     # from triplet_loss_ import batch_hard_triplet_loss_k
-    batch_size = 256
-    epochs = 96
+
 
     # train session
     opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
@@ -218,6 +227,10 @@ if train:
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
     vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
 
+    num_samples = len(files)
+    steps_per_epoch = ceil(num_samples / batch_size)
+
+    """
     dummy_gt_train = np.zeros((len(images_train), netvlad_output + n_queries))
     dummy_gt_val = np.zeros((len(images_test), netvlad_output + n_queries))
 
@@ -230,7 +243,10 @@ if train:
         epochs=epochs,
         # validation_data=([images_test, labels_test], dummy_gt_val),
         verbose=1,
-    )
+    )"""
+
+    H = vgg_netvlad.fit_generator(generator=generator, steps_per_epoch=steps_per_epoch, epochs=epochs)
+
 
     vgg_netvlad.save_weights("model.h5")
     print("Saved model to disk")
@@ -257,10 +273,12 @@ if train:
 
 # vgg_qpn.load_weights('model.h5')
 
-result = vgg_netvlad.predict([images[:1], labels[:1]])
+
+vgg_netvlad = my_model.get_netvlad_extractor()
+result = vgg_netvlad.predict(images[:1])
 #%%
 
-# test model
+############### test model
 
 # this function create a perfect ranking :)
 
@@ -301,6 +319,28 @@ print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
 #%%
 
+def get_imlist(path):
+    return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
+
+
+def create_image_dict(img_list):
+    input_shape = (224, 224, 3)
+    tensor = {}
+    for path in img_list:
+        img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
+        img = image.img_to_array(img)
+        img = preprocess_input(img)
+        img_key = path.strip('holidays_small/')
+        tensor[img_key] = img
+    # tensor = np.array(tensor)
+    return tensor
+
+
+#%%
+
+img_dict = create_image_dict(get_imlist('holidays_small'))
+img_dict.keys()
+
 # img_tensor = images_to_tensor(imnames)
 img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
@@ -310,9 +350,9 @@ vgg_netvlad.load_weights("model.h5")
 
 #%%
 vgg_netvlad.summary()
-all_feats = vgg_netvlad.predict([img_tensor, np.zeros((len(img_tensor), n_queries))])
+all_feats = vgg_netvlad.predict(img_tensor)
 
-all_feats = all_feats[:, n_queries:]
+#all_feats = all_feats[:, n_queries:]
 
 plt.imshow(all_feats, cmap='viridis')
 plt.colorbar()
