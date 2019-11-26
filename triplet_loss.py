@@ -157,12 +157,15 @@ def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
 
     # Build pairwise binary adjacency matrix.
     #adjacency = math_ops.equal(labels, array_ops.transpose(labels))
-    adjacency = tf.matmul(labels, tf.transpose(labels))
+    #adjacency = tf.matmul(labels, tf.transpose(labels))
+    #adjacency = tf.cast(adjacency, tf.dtypes.bool)
 
-    adjacency = tf.cast(adjacency, tf.dtypes.bool)
+    adjacency_not = pairwise_distance(tf.cast(labels, 'float32'))
+    adjacency_not = tf.cast(adjacency_not, 'bool')
+    adjacency = tf.logical_not(adjacency_not)
 
     # Invert so we can select negatives only.
-    adjacency_not = math_ops.logical_not(adjacency)
+    #adjacency_not = math_ops.logical_not(adjacency)
 
     # global batch_size
     #batch_size = array_ops.size(labels)  # was 'array_ops.size(labels)'
