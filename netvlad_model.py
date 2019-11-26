@@ -33,9 +33,11 @@ class NetVLADModel:
         self.vgg_netvlad = None
         self.images_input = None
 
-    def get_feature_extractor(self):
+    def get_feature_extractor(self, verbose=False):
         vgg = self.base_model
         vgg = Model(vgg.input, vgg.get_layer('block5_conv2').output)
+        if verbose:
+            vgg.summary()
         return vgg, vgg.output_shape
 
     def build_netvladmodel(self, n_classes, kmeans):

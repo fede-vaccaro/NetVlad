@@ -45,11 +45,12 @@ def image_generator(files, index, classes, net_output=0, batch_size=64):
         x_batch = np.array(x_batch)
         label_batch = np.array(label_batch)
 
-        label_cross = np.dot(label_batch, label_batch.T)
+        # label_cross = np.dot(label_batch, label_batch.T)
         # label_cross_bool = label_cross.astype('bool')
-
-        yield ([x_batch, label_batch], y_batch)
-
+        if net_output is not 0:
+            yield ([x_batch, label_batch], y_batch)
+        else:
+            yield x_batch
 
 def generate_index_mirflickr(path):
     relevant_tags_txt = get_txtlist(path)

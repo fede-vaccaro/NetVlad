@@ -16,14 +16,17 @@ from math import ceil
 
 
 import open_dataset_utils as my_utils
-index, classes = my_utils.generate_index_holidays('labeled.dat')
-files = my_utils.get_imlist('holidays_small')
+# index, classes = my_utils.generate_index_holidays('labeled.dat')
+# files = my_utils.get_imlist('holidays_small')
+index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
+files = ["mirflickr/" + k for k in list(index.keys())]
 
-generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=1491)
+#generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=10000)
+generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=128)
 
 images = []
 for el in generator_nolabels:
-    [x_batch, label_batch], y_batch = el
+    x_batch = el
     images = x_batch
     break
 
@@ -31,18 +34,20 @@ from netvlad_model import NetVLADModel
 
 my_model = NetVLADModel()
 vgg, output_shape = my_model.get_feature_extractor()
-vgg.summary()
 #%%
 
-all_descs = vgg.predict(images)
+print("Predicting local features for k-means")
+all_descs = vgg.predict_generator(generator=generator_nolabels, steps=30)
+
 #%%
 import random
 
 all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
-all_descs_ = all_descs_.reshape((1491, 512, 14 * 14))
+all_descs_ = all_descs_.reshape((len(all_descs), 512, 14 * 14))
 
 locals = []
 
+print("Sampling local features")
 for desc_matrix in all_descs_:
     samples = random.sample(desc_matrix.tolist(), 50)
     locals += samples
@@ -57,6 +62,7 @@ locals = normalize(locals, axis=1)
 from sklearn.cluster import MiniBatchKMeans
 
 n_clust = 64
+print("Fitting k-means")
 kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
 
 #%%
@@ -68,10 +74,11 @@ vgg_netvlad, net_output = my_model.build_netvladmodel(n_classes=len(classes), km
 #%%
 
 batch_size = 256
-epochs = 96
+epochs = 32
 
 generator = my_utils.image_generator(files=files, index=index, classes=classes, net_output=net_output, batch_size=batch_size)
 
+print("Loading images")
 x_batch = []
 label_batch = []
 for el in generator:
@@ -112,13 +119,14 @@ if train:
 #%%
 
 vgg_netvlad = my_model.get_netvlad_extractor()
+vgg_netvlad.summary()
 result = vgg_netvlad.predict(images[:1])
 #%%
 
+print("Testing model")
+
 ############### test model
-
 # this function create a perfect ranking :)
-
 from sklearn.neighbors import NearestNeighbors
 
 input_shape = (224, 224, 3)
@@ -186,7 +194,7 @@ img_tensor = np.array(img_tensor)
 vgg_netvlad.load_weights("model.h5")
 
 #%%
-vgg_netvlad.summary()
+# vgg_netvlad.summary()
 all_feats = vgg_netvlad.predict(img_tensor)
 
 #all_feats = all_feats[:, n_queries:]
