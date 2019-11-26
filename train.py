@@ -15,10 +15,7 @@ from keras.preprocessing import image
 
 from loupe_keras import NetVLAD
 
-
-def get_imlist(path):
-    return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
-
+from open_dataset_utils import *
 
 def create_image_dict(img_list):
     input_shape = (224, 224, 3)
