@@ -13,8 +13,7 @@ def get_txtlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.txt')]
 
 
-def open_img(path):
-    input_shape = (224, 224, 3)
+def open_img(path, input_shape=(224, 224, 3)):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
     img = image.img_to_array(img)
     img = preprocess_input(img)
@@ -23,7 +22,7 @@ def open_img(path):
     return img, img_id
 
 
-def image_generator(files, index, classes, net_output=0, batch_size=64):
+def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=(224, 224, 3)):
     while True:
         batch_paths = np.random.choice(a=files,
                                        size=batch_size)
@@ -32,7 +31,7 @@ def image_generator(files, index, classes, net_output=0, batch_size=64):
         label_batch = []
 
         for input_path in batch_paths:
-            img, id = open_img(input_path)
+            img, id = open_img(input_path, input_shape=input_shape)
             x_batch += [img]
 
             tags = np.zeros(len(classes))
