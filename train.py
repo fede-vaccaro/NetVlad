@@ -13,61 +13,8 @@ import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from math import ceil
-from loupe_keras import NetVLAD
 
 
-
-
-#%%
-"""
-n_queries = 500
-
-# create dataset
-images = []
-labels = []
-
-labeled_file = open("labeled.dat", "r")
-for line in labeled_file.readlines():
-    split = line.split(" ")[:3]
-
-    images.append(img_dict[split[0]])
-    label_index = int(split[2])
-    label = np.zeros(n_queries)
-    label[label_index] = 1
-    labels.append(label)
-
-images = np.array(images)
-labels = np.array(labels).astype('int32')
-print(labels.shape)
-"""
-#%%
-
-# create model
-from keras.applications import VGG16
-from keras.models import Model
-from keras import activations
-import vis.utils.utils
-
-"""
-input_shape = (224, 224, 3)
-
-# vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
-vgg = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
-
-# set layers untrainable
-for layer in vgg.layers:
-    layer.trainable = False
-    # print(layer, layer.trainable)
-    if layer.name is 'block5_conv2':
-        layer.trainable = True
-
-vgg.get_layer('block5_conv2').activation = activations.linear
-vgg = vis.utils.utils.apply_modifications(vgg)
-
-vgg = Model(vgg.input, vgg.get_layer('block5_conv2').output)
-"""
-# vgg.layers.pop()
-# vgg.layers.pop(0)
 import open_dataset_utils as my_utils
 index, classes = my_utils.generate_index_holidays('labeled.dat')
 files = my_utils.get_imlist('holidays_small')
@@ -86,8 +33,6 @@ my_model = NetVLADModel()
 vgg, output_shape = my_model.get_feature_extractor()
 vgg.summary()
 #%%
-
-
 
 all_descs = vgg.predict(images)
 #%%
@@ -116,66 +61,7 @@ kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
 
 #%%
 
-from keras.layers import Input, Dense, Reshape, Dropout, concatenate, Permute
 from keras.optimizers import Adam
-from keras.utils import plot_model
-from triplet_loss import L2NormLayer
-
-"""
-images_input = Input(shape=(224, 224, 3))
-label_input = Input(shape=(len(classes),), name="input_label")
-
-transpose = Permute((3, 1, 2), input_shape=(-1, 512))(vgg([images_input]))
-embedding_size = 512
-
-# vgg_output = vgg.output_shape[1]
-# embedding = Dense(embedding_size, input_shape=(vgg_output,), activation='relu', name="embedding1")(vgg([images_input]))
-reshape = Reshape((512, 14 * 14))(transpose)
-l2normalization = L2NormLayer()(reshape)
-netvlad = NetVLAD(feature_size=14 * 14, max_samples=512, cluster_size=64,
-                  output_dim=1024)(l2normalization)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
-
-# netvlad_output = 8*8*64
-netvlad_output = 14 * 14 * 64
-dropout = Dropout(0.)
-
-#%%
-
-# embedding_output = netvlad(reshape(embedding(vgg.output)))
-labels_plus_embeddings = concatenate([label_input, netvlad])
-
-vgg_netvlad = Model(inputs=[images_input, label_input], outputs=labels_plus_embeddings)
-
-#%%
-netvlad_ = vgg_netvlad.get_layer('net_vlad_1')
-weights_netvlad = netvlad_.get_weights()
-
-#%%
-cluster_weights = kmeans.cluster_centers_
-alpha = 20.
-assignments_weights = 2. * alpha * cluster_weights
-assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)
-
-cluster_weights = cluster_weights.T
-assignments_weights = assignments_weights.T
-assignments_bias = assignments_bias.T
-
-cluster_weights = np.expand_dims(cluster_weights, axis=0)
-# assignments_weights = np.expand_dims(assignments_weights, axis=0)
-# assignments_bias = np.expand_dims(assignments_bias, axis=0)
-
-#%%
-weights_netvlad[0] = assignments_weights
-weights_netvlad[1] = assignments_bias
-weights_netvlad[2] = cluster_weights
-
-netvlad_.set_weights(weights_netvlad)
-# vis.utils.utils.apply_modifications(vgg_netvlad)
-#%%
-
-plot_model(vgg_netvlad, to_file='base_network.png', show_shapes=True, show_layer_names=True)
-vgg_netvlad.summary()
-"""
 
 vgg_netvlad, net_output = my_model.build_netvladmodel(n_classes=len(classes), kmeans=kmeans)
 
@@ -194,31 +80,11 @@ for el in generator:
 
 result = vgg_netvlad.predict([x_batch[:1], label_batch[:1]])
 
-#%%
-"""
-all_data_len = len(img_dict.keys())
-# n_train = all_data_len
-# n_train = 500
-
-use_all = True
-if not use_all:
-    images_train = images[n_queries:]
-    labels_train = labels[n_queries:]
-else:
-    images_train = images
-    labels_train = labels
-
-images_test = images[:n_queries]
-labels_test = labels[:n_queries]
-"""
-#%%
-
 train = True
 if train:
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
 
     # from triplet_loss_ import batch_hard_triplet_loss_k
-
 
     # train session
     opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
@@ -229,21 +95,6 @@ if train:
 
     num_samples = len(files)
     steps_per_epoch = ceil(num_samples / batch_size)
-
-    """
-    dummy_gt_train = np.zeros((len(images_train), netvlad_output + n_queries))
-    dummy_gt_val = np.zeros((len(images_test), netvlad_output + n_queries))
-
-    #%%
-
-    H = vgg_netvlad.fit(
-        x=[images_train, labels_train],
-        y=dummy_gt_train,
-        batch_size=batch_size,
-        epochs=epochs,
-        # validation_data=([images_test, labels_test], dummy_gt_val),
-        verbose=1,
-    )"""
 
     H = vgg_netvlad.fit_generator(generator=generator, steps_per_epoch=steps_per_epoch, epochs=epochs)
 
@@ -259,20 +110,6 @@ if train:
     plt.show()
 
 #%%
-
-# pop triplet loss layer
-# resnet_qpn_no_loss = Model(input=resnet_qpn.input, outputs=resnet_qpn.output)
-# resnet_qpn_no_loss.layers.pop()
-# resnet_qpn_no_loss.summary()
-
-
-#%%
-
-# reload model from disk
-# vgg_qpn = Model([input_q, input_p, input_n], [embedding_q, embedding_p, embedding_n])
-
-# vgg_qpn.load_weights('model.h5')
-
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 result = vgg_netvlad.predict(images[:1])
