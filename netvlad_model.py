@@ -14,7 +14,7 @@ input_shape = (224, 224, 3)
 
 
 class NetVLADModel:
-    def __init__(self, layer_name='block5_conv3'):
+    def __init__(self, layer_name='block5_conv2'):
         model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
         # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
 
@@ -22,6 +22,9 @@ class NetVLADModel:
         for layer in model.layers:
             layer.trainable = False
             # print(layer, layer.trainable)
+
+        #model.get_layer('block5_conv1').trainable = True
+        #model.get_layer('block5_conv2').trainable = True
 
         custom_layer = model.get_layer(layer_name)
         custom_layer.trainable = True
@@ -37,6 +40,7 @@ class NetVLADModel:
         self.images_input = None
         self.filter_l = 14
         self.netvlad_output = self.filter_l*self.filter_l*64
+
 
     def get_feature_extractor(self, verbose=False):
         vgg = self.base_model
@@ -121,7 +125,7 @@ from keras_retinanet.keras_retinanet import models
 import os
 
 class NetVLADModelRetinaNet(NetVLADModel):
-    def __init__(self, layer_name='P4'):
+    def __init__(self, layer_name='P3_merged'):
         model_path = os.path.join('keras_retinanet', 'snapshots', 'resnet50_coco_best_v2.1.0.h5')
 
         # load retinanet model
@@ -137,11 +141,17 @@ class NetVLADModelRetinaNet(NetVLADModel):
         custom_layer = model.get_layer(layer_name)
         custom_layer.trainable = True
 
+        #model.get_layer(layer_name).activation = activations.linear
+        #model = vis.utils.utils.apply_modifications(model)
+
+
         self.base_model = Model(model.input, custom_layer.output)
 
         self.vgg_netvlad = None
         self.images_input = None
         self.layer_name = layer_name
+        self.filter_l = 28
+        self.netvlad_output = self.filter_l*self.filter_l*64
 
     """ def get_feature_extractor(self, verbose=False):
         vgg = self.base_model

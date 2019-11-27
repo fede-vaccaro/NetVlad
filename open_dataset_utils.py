@@ -52,6 +52,34 @@ def image_generator(files, index, classes, net_output=0, batch_size=64, input_sh
         else:
             yield x_batch
 
+def image_generator_ones(files, net_output=0, batch_size=64, input_shape=(224, 224, 3)):
+
+    while True:
+        batch_paths = np.random.choice(a=files,
+                                       size=batch_size)
+
+        x_batch = []
+        label_batch = []
+
+        for i, input_path in enumerate(batch_paths):
+            img, id = open_img(input_path, input_shape=input_shape)
+            x_batch += [img]
+
+            tags = np.zeros((batch_size))
+            tags[i] = 1
+            label_batch += [tags]
+
+        y_batch = np.zeros((batch_size, net_output + batch_size))
+        x_batch = np.array(x_batch)
+        label_batch = np.array(label_batch)
+
+        # label_cross = np.dot(label_batch, label_batch.T)
+        # label_cross_bool = label_cross.astype('bool')
+        if net_output is not 0:
+            yield ([x_batch, label_batch], y_batch)
+        else:
+            yield x_batch
+
 def generate_index_mirflickr(path):
     relevant_tags_txt = get_txtlist(path)
     images_dict = {}

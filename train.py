@@ -14,29 +14,46 @@ from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from math import ceil
 from keras.optimizers import Adam
-
+import random
 
 import open_dataset_utils as my_utils
-# index, classes = my_utils.generate_index_holidays('labeled.dat')
-# files = my_utils.get_imlist('holidays_small')
-index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
-files = ["mirflickr/" + k for k in list(index.keys())]
+index, classes = my_utils.generate_index_holidays('labeled.dat')
+files = my_utils.get_imlist('holidays_small')
+query_holidays = [x for x in files if int(x.strip('holidays_small/')[:-4]) % 100 is 0]
+random.shuffle(query_holidays)
+query_holidays = query_holidays[:50]
+# index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
+# files = ["mirflickr/" + k for k in list(index.keys())]
 
-# generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=149)
 from netvlad_model import NetVLADModel, NetVLADModelRetinaNet
 
 my_model = NetVLADModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
-vgg_netvlad = my_model.build_netvladmodel(n_classes=len(classes))
+vgg_netvlad = my_model.build_netvladmodel(n_classes=50)
 
+generator = my_utils.image_generator(files=query_holidays, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=500)
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=128)
 
 images = []
-for el in generator_nolabels:
-    x_batch = el
-    images = x_batch
+
+queries_train = None
+labels_train = None
+
+for el in generator:
+    [x_batch, label_batch], y_batch = el
+    queries_train = x_batch
+    labels_train = label_batch
     break
-print("features shape: ", images.shape)
+
+from keras.preprocessing.image import ImageDataGenerator
+
+train_datagen = ImageDataGenerator(rotation_range=70,
+                                   width_shift_range=0.5,
+                                   height_shift_range=0.5,
+                                   shear_range=0.6,
+                                   zoom_range=0.6,
+                                   horizontal_flip=False,
+                                   fill_mode='nearest')
 
 train_kmeans = True
 if train_kmeans:
@@ -46,7 +63,7 @@ if train_kmeans:
 
 
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=50)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=15)
     print("All descs shape: ", all_descs.shape)
     # %%
 
@@ -79,8 +96,8 @@ if train_kmeans:
 
 #%%
 
-batch_size = 200
-epochs = 32
+batch_size = 50
+epochs = 70
 
 from sklearn.model_selection import train_test_split
 
@@ -96,12 +113,19 @@ for el in generator:
     [x_batch, label_batch], y_batch = el
     break
 
-result = vgg_netvlad.predict([x_batch[:1], label_batch[:1]])
+#result = vgg_netvlad.predict([x_batch[:1], label_batch[:1]])
 
 train = True
 if train:
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
-    from keras.callbacks import ReduceLROnPlateau
+    from keras.callbacks import ReduceLROnPlateau, LearningRateScheduler
+
+    def schudule(epoch, lr):
+        if epoch + 1 % 3 is 0:
+            print("Halving lr to: ")
+            lr *= 0.5
+
+        return lr
 
     # from triplet_loss_ import batch_hard_triplet_loss_k
 
@@ -116,31 +140,66 @@ if train:
     steps_per_epoch_val = ceil(len(files_test) / batch_size)
 
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                                  patience=5, min_lr=1e-9, verbose=1)
+                                  patience=3, min_lr=1e-9, verbose=1)
 
-    H = vgg_netvlad.fit_generator(generator=generator,
+    schedule_lr = LearningRateScheduler(schudule, verbose=1)
+
+    """H = vgg_netvlad.fit_generator(generator=generator,
                                   steps_per_epoch=steps_per_epoch,
                                   epochs=epochs,
                                   validation_steps=steps_per_epoch_val,
                                   validation_data=test_generator,
-                                  callbacks=[reduce_lr])
+                                  callbacks=[reduce_lr, schedule_lr])
+    """
+    from open_dataset_utils import image_generator_ones
+    generator_ones = image_generator_ones(files=files, net_output=my_model.netvlad_output, batch_size=50)
+    partitions = []
 
+    n_parts = 10
+    i = 0
+    for el in generator_ones:
+        partitions += [el]
+        i += 1
+        if i == n_parts:
+            break
+
+
+    for e in range(epochs):
+        print('Epoch', e)
+        batches = 0
+        partition, _ = partitions[e % len(partitions)]
+        queries_train = partition[0].tolist()
+        labels_train = partition[1].tolist()
+
+        queries_train *= 4
+        labels_train *= 4
+
+        queries_train = np.array(queries_train)
+        labels_train = np.array(labels_train)
+
+        for x_batch, y_batch in train_datagen.flow(queries_train, labels_train, batch_size=batch_size, shuffle=True):
+            vgg_netvlad.fit([x_batch, y_batch], np.zeros((len(x_batch), my_model.netvlad_output + 50)), batch_size=batch_size)
+            batches += 1
+            if batches >= len(queries_train) / batch_size:
+                # we need to break the loop by hand because
+                # the generator loops indefinitely
+                break
 
     vgg_netvlad.save_weights("model.h5")
     print("Saved model to disk")
 
-    plt.figure(figsize=(8, 8))
-    plt.plot(H.history['loss'], label='training loss')
+    #plt.figure(figsize=(8, 8))
+    #plt.plot(H.history['loss'], label='training loss')
     # plt.plot(H.history['val_loss'], label='validation loss')
-    plt.legend()
-    plt.title('Train/validation loss')
-    plt.show()
+    #plt.legend()
+    #plt.title('Train/validation loss')
+    #plt.show()
 
 #%%
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
-result = vgg_netvlad.predict(images[:1])
+#result = vgg_netvlad.predict(images[:1])
 #%%
 
 print("Testing model")

@@ -86,3 +86,8 @@ for f in dict.keys():
     #print(x_batch.shape, label_batch.shape, y_batch.shape)
     #time.sleep(1)
 
+import csv
+
+w = csv.writer(open("output.csv", "w"))
+for key, val in dict.items():
+    w.writerow([key, val])
