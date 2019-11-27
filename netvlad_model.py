@@ -15,8 +15,8 @@ input_shape = (224, 224, 3)
 
 class NetVLADModel:
     def __init__(self, layer_name='block5_conv3'):
-        # model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
-        model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
+        model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
+        # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
 
         # set layers untrainable
         for layer in model.layers:
@@ -36,7 +36,7 @@ class NetVLADModel:
         self.vgg_netvlad = None
         self.images_input = None
         self.filter_l = 14
-        self.netvlad_output = self.filter_l*self.filter_l*128
+        self.netvlad_output = self.filter_l*self.filter_l*64
 
     def get_feature_extractor(self, verbose=False):
         vgg = self.base_model
@@ -65,14 +65,14 @@ class NetVLADModel:
 
         label_input = Input(shape=(n_classes,), name="input_label")
 
-        transpose = Permute((3, 1, 2), input_shape=(-1, n_filters))(self.base_model([self.images_input]))
+        #transpose = Permute((3, 1, 2), input_shape=(-1, n_filters))(self.base_model([self.images_input]))
 
         filter_l = self.filter_l
 
         # vgg_output = vgg.output_shape[1]
-        reshape = Reshape((n_filters, filter_l * filter_l))(transpose)
+        reshape = Reshape((-1, n_filters))(self.base_model([self.images_input]))
         l2normalization = L2NormLayer()(reshape)
-        netvlad = NetVLAD(feature_size=filter_l * filter_l, max_samples=n_filters, cluster_size=128)(
+        netvlad = NetVLAD(feature_size=n_filters, max_samples=filter_l**2, cluster_size=64)(
             l2normalization)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
 
 
@@ -94,7 +94,7 @@ class NetVLADModel:
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
-        alpha = 10.
+        alpha = 30.
 
         assignments_weights = 2. * alpha * cluster_weights
         assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)

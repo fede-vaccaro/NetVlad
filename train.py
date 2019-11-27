@@ -52,26 +52,26 @@ if train_kmeans:
 
     import random
 
-    all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
-    all_descs_ = all_descs_.reshape((len(all_descs), all_descs_.shape[1], all_descs_.shape[2]*all_descs_.shape[3]))
+    #all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
+    all_descs = all_descs.reshape((len(all_descs), all_descs.shape[1]*all_descs.shape[2], all_descs.shape[3]))
 
     locals = []
 
     print("Sampling local features")
-    for desc_matrix in all_descs_:
-        samples = random.sample(desc_matrix.tolist(), 50)
+    for desc_matrix in all_descs:
+        samples = random.sample(desc_matrix.tolist(), 25)
         locals += samples
 
     #%%
 
     from sklearn.preprocessing import normalize
 
-    locals = np.array(locals)
+    locals = np.array(locals, dtype='float32')
     locals = normalize(locals, axis=1)
     #%%
     from sklearn.cluster import MiniBatchKMeans
 
-    n_clust = 128
+    n_clust = 64
     print("Fitting k-means")
     kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
 
@@ -79,7 +79,7 @@ if train_kmeans:
 
 #%%
 
-batch_size = 256
+batch_size = 200
 epochs = 32
 
 from sklearn.model_selection import train_test_split
