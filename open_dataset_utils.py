@@ -23,6 +23,7 @@ def open_img(path, input_shape=(224, 224, 3)):
 
 
 def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=(224, 224, 3)):
+
     while True:
         batch_paths = np.random.choice(a=files,
                                        size=batch_size)

@@ -76,10 +76,13 @@ print(classes)
 files = list(dict.keys())
 files = ["mirflickr/" + k for k in files]
 
-gen = image_generator(files=files, index=dict, classes=classes, net_output=4000, batch_size=16)
+for f in dict.keys():
+    print(f, dict[f])
 
-for el in gen:
-    [x_batch, label_batch], y_batch = el
+# gen = image_generator(files=files, index=dict, classes=classes, net_output=4000, batch_size=16)
+
+#for el in gen:
+#    [x_batch, label_batch], y_batch = el
     #print(x_batch.shape, label_batch.shape, y_batch.shape)
     #time.sleep(1)
 

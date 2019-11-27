@@ -13,6 +13,7 @@ import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from math import ceil
+from keras.optimizers import Adam
 
 
 import open_dataset_utils as my_utils
@@ -21,7 +22,13 @@ import open_dataset_utils as my_utils
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 files = ["mirflickr/" + k for k in list(index.keys())]
 
-#generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=10000)
+# generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=149)
+from netvlad_model import NetVLADModel, NetVLADModelRetinaNet
+
+my_model = NetVLADModel()
+vgg, output_shape = my_model.get_feature_extractor(verbose=True)
+vgg_netvlad = my_model.build_netvladmodel(n_classes=len(classes))
+
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=128)
 
 images = []
@@ -29,54 +36,58 @@ for el in generator_nolabels:
     x_batch = el
     images = x_batch
     break
+print("features shape: ", images.shape)
 
-from netvlad_model import NetVLADModel
+train_kmeans = True
+if train_kmeans:
 
-my_model = NetVLADModel()
-vgg, output_shape = my_model.get_feature_extractor()
-#%%
+    # my_model = NetVLADModel()
+    # %%
 
-print("Predicting local features for k-means")
-all_descs = vgg.predict_generator(generator=generator_nolabels, steps=30)
 
-#%%
-import random
+    print("Predicting local features for k-means. Output shape: ", output_shape)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=50)
+    print("All descs shape: ", all_descs.shape)
+    # %%
 
-all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
-all_descs_ = all_descs_.reshape((len(all_descs), 512, 14 * 14))
+    import random
 
-locals = []
+    all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
+    all_descs_ = all_descs_.reshape((len(all_descs), all_descs_.shape[1], all_descs_.shape[2]*all_descs_.shape[3]))
 
-print("Sampling local features")
-for desc_matrix in all_descs_:
-    samples = random.sample(desc_matrix.tolist(), 50)
-    locals += samples
+    locals = []
 
-#%%
+    print("Sampling local features")
+    for desc_matrix in all_descs_:
+        samples = random.sample(desc_matrix.tolist(), 50)
+        locals += samples
 
-from sklearn.preprocessing import normalize
+    #%%
 
-locals = np.array(locals)
-locals = normalize(locals, axis=1)
-#%%
-from sklearn.cluster import MiniBatchKMeans
+    from sklearn.preprocessing import normalize
 
-n_clust = 64
-print("Fitting k-means")
-kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
+    locals = np.array(locals)
+    locals = normalize(locals, axis=1)
+    #%%
+    from sklearn.cluster import MiniBatchKMeans
 
-#%%
+    n_clust = 128
+    print("Fitting k-means")
+    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
 
-from keras.optimizers import Adam
-
-vgg_netvlad, net_output = my_model.build_netvladmodel(n_classes=len(classes), kmeans=kmeans)
+    my_model.set_netvlad_weights(kmeans)
 
 #%%
 
 batch_size = 256
 epochs = 32
 
-generator = my_utils.image_generator(files=files, index=index, classes=classes, net_output=net_output, batch_size=batch_size)
+from sklearn.model_selection import train_test_split
+
+files_train, files_test = train_test_split(files, test_size=0.15, random_state=42)
+
+generator = my_utils.image_generator(files=files_train, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
+test_generator = my_utils.image_generator(files=files_test, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
 
 print("Loading images")
 x_batch = []
@@ -90,6 +101,7 @@ result = vgg_netvlad.predict([x_batch[:1], label_batch[:1]])
 train = True
 if train:
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
+    from keras.callbacks import ReduceLROnPlateau
 
     # from triplet_loss_ import batch_hard_triplet_loss_k
 
@@ -100,10 +112,18 @@ if train:
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
     vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
 
-    num_samples = len(files)
-    steps_per_epoch = ceil(num_samples / batch_size)
+    steps_per_epoch = ceil(len(files_train) / batch_size)
+    steps_per_epoch_val = ceil(len(files_test) / batch_size)
 
-    H = vgg_netvlad.fit_generator(generator=generator, steps_per_epoch=steps_per_epoch, epochs=epochs)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
+                                  patience=5, min_lr=1e-9, verbose=1)
+
+    H = vgg_netvlad.fit_generator(generator=generator,
+                                  steps_per_epoch=steps_per_epoch,
+                                  epochs=epochs,
+                                  validation_steps=steps_per_epoch_val,
+                                  validation_data=test_generator,
+                                  callbacks=[reduce_lr])
 
 
     vgg_netvlad.save_weights("model.h5")
@@ -191,7 +211,7 @@ img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
 #%%
-vgg_netvlad.load_weights("model.h5")
+#vgg_netvlad.load_weights("model.h5")
 
 #%%
 # vgg_netvlad.summary()
