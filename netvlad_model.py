@@ -2,19 +2,20 @@ import numpy as np
 import vis.utils.utils
 from keras import activations
 from keras.applications import VGG16
-from keras.layers import Input, Reshape, concatenate, Permute
+from keras.layers import Input, Reshape, concatenate
 from keras.models import Model
 
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
-from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-input_shape = (224, 224, 3)
+
+input_shape = (336, 336, 3)
+
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
 
 
 class NetVLADModel:
-    def __init__(self, layer_name='block5_conv2'):
+    def __init__(self, layer_name='block5_conv2', n_cluster=64):
         model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
         # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
 
@@ -23,7 +24,7 @@ class NetVLADModel:
             layer.trainable = False
             # print(layer, layer.trainable)
 
-        #model.get_layer('block5_conv1').trainable = True
+        model.get_layer('block5_conv1').trainable = True
         #model.get_layer('block5_conv2').trainable = True
 
         custom_layer = model.get_layer(layer_name)
@@ -38,9 +39,9 @@ class NetVLADModel:
         self.layer_name = layer_name
         self.vgg_netvlad = None
         self.images_input = None
-        self.filter_l = 14
-        self.netvlad_output = self.filter_l*self.filter_l*64
-
+        self.filter_l = 21
+        self.n_cluster = n_cluster
+        self.netvlad_output = self.filter_l * self.filter_l * n_cluster
 
     def get_feature_extractor(self, verbose=False):
         vgg = self.base_model
@@ -50,12 +51,11 @@ class NetVLADModel:
         return vgg, vgg.output_shape
 
     def get_pooled_feature_extractor(self):
-        self.images_input = Input(shape=(224, 224, 3))
+        self.images_input = Input(shape=input_shape)
         from keras.layers import AvgPool2D, Flatten
 
         filter_w = self.base_model.output_shape[1]
         filter_h = self.base_model.output_shape[2]
-
 
         pooled = AvgPool2D((filter_w, filter_h))(self.base_model([self.images_input]))
         flatten = Flatten()(pooled)
@@ -63,22 +63,21 @@ class NetVLADModel:
         return Model(inputs=self.images_input, output=flatten)
 
     def build_netvladmodel(self, n_classes, kmeans=None):
-        self.images_input = Input(shape=(224, 224, 3))
+        self.images_input = Input(shape=input_shape)
         output_shape = self.base_model.output_shape
         n_filters = output_shape[3]
 
         label_input = Input(shape=(n_classes,), name="input_label")
 
-        #transpose = Permute((3, 1, 2), input_shape=(-1, n_filters))(self.base_model([self.images_input]))
+        # transpose = Permute((3, 1, 2), input_shape=(-1, n_filters))(self.base_model([self.images_input]))
 
         filter_l = self.filter_l
 
         # vgg_output = vgg.output_shape[1]
         reshape = Reshape((-1, n_filters))(self.base_model([self.images_input]))
         l2normalization = L2NormLayer()(reshape)
-        netvlad = NetVLAD(feature_size=n_filters, max_samples=filter_l**2, cluster_size=64)(
+        netvlad = NetVLAD(feature_size=n_filters, max_samples=filter_l ** 2, cluster_size=self.n_cluster)(
             l2normalization)  # , output_dim=1024)resnet_output = resnet.output_shape[1]
-
 
         # %%
 
@@ -89,6 +88,8 @@ class NetVLADModel:
 
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
+
+        vgg_netvlad.summary()
 
         self.vgg_netvlad = vgg_netvlad
         return self.vgg_netvlad
@@ -121,8 +122,45 @@ class NetVLADModel:
         return Model(inputs=self.images_input, outputs=self.vgg_netvlad.get_layer('net_vlad_1').output)
 
 
+from keras.applications import ResNet50
+
+
+class NetVladResnet(NetVLADModel):
+    def __init__(self, layer_name='bn5c_branch2b'):
+        # model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
+        # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
+        model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
+
+        # set layers untrainable
+        for layer in model.layers:
+            layer.trainable = False
+            # print(layer, layer.trainable)
+
+        for layer in model.layers[-20:]:
+            layer.trainable = True
+
+        model.get_layer('res5c_branch2b').trainable = True
+        model.get_layer('bn5c_branch2b').trainable = True
+
+        # custom_layer = model.get_layer(layer_name)
+        # custom_layer.trainable = True
+
+        # model.get_layer(layer_name).activation = activations.linear
+        # model = vis.utils.utils.apply_modifications(model)
+
+        self.backbone = model
+        self.base_model = Model(model.input, model.get_layer(layer_name).output)
+
+        self.layer_name = layer_name
+        self.vgg_netvlad = None
+        self.images_input = None
+        self.filter_l = 11
+        self.netvlad_output = self.filter_l * self.filter_l * 64
+
+
 from keras_retinanet.keras_retinanet import models
 import os
+
 
 class NetVLADModelRetinaNet(NetVLADModel):
     def __init__(self, layer_name='P3_merged'):
@@ -135,15 +173,14 @@ class NetVLADModelRetinaNet(NetVLADModel):
         for layer in model.layers:
             layer.trainable = False
             # print(layer, layer.trainable)
-            #if layer.name is layer_name:
+            # if layer.name is layer_name:
             #    layer.trainable = True
 
         custom_layer = model.get_layer(layer_name)
         custom_layer.trainable = True
 
-        #model.get_layer(layer_name).activation = activations.linear
-        #model = vis.utils.utils.apply_modifications(model)
-
+        # model.get_layer(layer_name).activation = activations.linear
+        # model = vis.utils.utils.apply_modifications(model)
 
         self.base_model = Model(model.input, custom_layer.output)
 
@@ -151,7 +188,7 @@ class NetVLADModelRetinaNet(NetVLADModel):
         self.images_input = None
         self.layer_name = layer_name
         self.filter_l = 28
-        self.netvlad_output = self.filter_l*self.filter_l*64
+        self.netvlad_output = self.filter_l * self.filter_l * 64
 
     """ def get_feature_extractor(self, verbose=False):
         vgg = self.base_model
@@ -166,4 +203,3 @@ class NetVLADModelRetinaNet(NetVLADModel):
         return self.get_feature_extractor()
         #return Model(inputs=self.images_input, outputs=self.vgg_netvlad.get_layer('net_vlad_1').output)
     """
-

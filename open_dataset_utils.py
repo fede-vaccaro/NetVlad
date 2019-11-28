@@ -1,7 +1,7 @@
 import os
 
 import numpy as np
-from keras.applications.vgg16 import preprocess_input
+from keras.applications.resnet50 import preprocess_input
 from keras.preprocessing import image
 
 
@@ -21,8 +21,10 @@ def open_img(path, input_shape=(224, 224, 3)):
 
     return img, img_id
 
+from netvlad_model import input_shape
+# input_shape = (336, 336, 3)
 
-def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=(224, 224, 3)):
+def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=input_shape):
 
     while True:
         batch_paths = np.random.choice(a=files,
@@ -52,7 +54,7 @@ def image_generator(files, index, classes, net_output=0, batch_size=64, input_sh
         else:
             yield x_batch
 
-def image_generator_ones(files, net_output=0, batch_size=64, input_shape=(224, 224, 3)):
+def image_generator_ones(files, net_output=0, batch_size=64, input_shape=input_shape):
 
     while True:
         batch_paths = np.random.choice(a=files,

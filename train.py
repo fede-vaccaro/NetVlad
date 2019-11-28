@@ -17,22 +17,23 @@ from keras.optimizers import Adam
 import random
 
 import open_dataset_utils as my_utils
-index, classes = my_utils.generate_index_holidays('labeled.dat')
-files = my_utils.get_imlist('holidays_small')
-query_holidays = [x for x in files if int(x.strip('holidays_small/')[:-4]) % 100 is 0]
-random.shuffle(query_holidays)
-query_holidays = query_holidays[:50]
-# index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
-# files = ["mirflickr/" + k for k in list(index.keys())]
+#index, classes = my_utils.generate_index_holidays('labeled.dat')
+#files = my_utils.get_imlist('holidays_small')
+#query_holidays = [x for x in files if int(x.strip('holidays_small/')[:-4]) % 100 is 0]
+#random.shuffle(query_holidays)
+#query_holidays = query_holidays[:50]
 
-from netvlad_model import NetVLADModel, NetVLADModelRetinaNet
+index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
+files = ["mirflickr/" + k for k in list(index.keys())]
+
+from netvlad_model import NetVLADModel, NetVladResnet
 
 my_model = NetVLADModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 vgg_netvlad = my_model.build_netvladmodel(n_classes=50)
 
-generator = my_utils.image_generator(files=query_holidays, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=500)
-generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=128)
+generator = my_utils.image_generator(files=files, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=500)
+generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=64)
 
 images = []
 
@@ -47,11 +48,11 @@ for el in generator:
 
 from keras.preprocessing.image import ImageDataGenerator
 
-train_datagen = ImageDataGenerator(rotation_range=70,
-                                   width_shift_range=0.5,
-                                   height_shift_range=0.5,
-                                   shear_range=0.6,
-                                   zoom_range=0.6,
+train_datagen = ImageDataGenerator(rescale=1./255., rotation_range=60,
+                                   width_shift_range=0.4,
+                                   height_shift_range=0.4,
+                                   shear_range=0.1,
+                                   zoom_range=0.4,
                                    horizontal_flip=False,
                                    fill_mode='nearest')
 
@@ -63,7 +64,7 @@ if train_kmeans:
 
 
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=15)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=20)
     print("All descs shape: ", all_descs.shape)
     # %%
 
@@ -79,6 +80,9 @@ if train_kmeans:
         samples = random.sample(desc_matrix.tolist(), 25)
         locals += samples
 
+
+    del all_descs
+
     #%%
 
     from sklearn.preprocessing import normalize
@@ -91,13 +95,13 @@ if train_kmeans:
     n_clust = 64
     print("Fitting k-means")
     kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
-
+    del locals
     my_model.set_netvlad_weights(kmeans)
 
 #%%
 
 batch_size = 50
-epochs = 70
+epochs = 100
 
 from sklearn.model_selection import train_test_split
 
@@ -107,11 +111,11 @@ generator = my_utils.image_generator(files=files_train, index=index, classes=cla
 test_generator = my_utils.image_generator(files=files_test, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
 
 print("Loading images")
-x_batch = []
-label_batch = []
-for el in generator:
-    [x_batch, label_batch], y_batch = el
-    break
+#x_batch = []
+#label_batch = []
+#for el in generator:
+#    [x_batch, label_batch], y_batch = el
+#    break
 
 #result = vgg_netvlad.predict([x_batch[:1], label_batch[:1]])
 
@@ -155,7 +159,7 @@ if train:
     generator_ones = image_generator_ones(files=files, net_output=my_model.netvlad_output, batch_size=50)
     partitions = []
 
-    n_parts = 10
+    n_parts = 50
     i = 0
     for el in generator_ones:
         partitions += [el]
@@ -171,6 +175,7 @@ if train:
         queries_train = partition[0].tolist()
         labels_train = partition[1].tolist()
 
+        multiplier = int(ceil(batch_size/50))
         queries_train *= 4
         labels_train *= 4
 
@@ -178,12 +183,17 @@ if train:
         labels_train = np.array(labels_train)
 
         for x_batch, y_batch in train_datagen.flow(queries_train, labels_train, batch_size=batch_size, shuffle=True):
+            #for im in x_batch:
+            #    plt.imshow(im)
+            #plt.show()
             vgg_netvlad.fit([x_batch, y_batch], np.zeros((len(x_batch), my_model.netvlad_output + 50)), batch_size=batch_size)
             batches += 1
             if batches >= len(queries_train) / batch_size:
                 # we need to break the loop by hand because
                 # the generator loops indefinitely
                 break
+
+    del partitions
 
     vgg_netvlad.save_weights("model.h5")
     print("Saved model to disk")
@@ -208,7 +218,8 @@ print("Testing model")
 # this function create a perfect ranking :)
 from sklearn.neighbors import NearestNeighbors
 
-input_shape = (224, 224, 3)
+from netvlad_model import input_shape
+# input_shape = (336, 336, 3)
 
 
 def get_imlist_(path="holidays_small"):
@@ -247,8 +258,8 @@ def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
 
-def create_image_dict(img_list):
-    input_shape = (224, 224, 3)
+def create_image_dict(img_list, input_shape=(224,224,3)):
+    #input_shape = input_shape
     tensor = {}
     for path in img_list:
         img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
@@ -262,20 +273,31 @@ def create_image_dict(img_list):
 
 #%%
 
-img_dict = create_image_dict(get_imlist('holidays_small'))
+img_dict = create_image_dict(get_imlist('holidays_small'), input_shape=input_shape)
 img_dict.keys()
 
 # img_tensor = images_to_tensor(imnames)
 img_tensor = [img_dict[key] for key in img_dict]
+del img_dict
 img_tensor = np.array(img_tensor)
 
 #%%
-#vgg_netvlad.load_weights("model.h5")
+print("Loading weights")
+vgg_netvlad.load_weights("model.h5")
 
 #%%
 # vgg_netvlad.summary()
 all_feats = vgg_netvlad.predict(img_tensor)
 
+print("PCA + power")
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import normalize
+
+all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
+all_feats_sign = np.sign(all_feats)
+all_feats = np.power(np.abs(all_feats), 0.5)
+all_feats = np.multiply(all_feats, all_feats_sign)
+all_feats = normalize(all_feats)
 #all_feats = all_feats[:, n_queries:]
 
 plt.imshow(all_feats, cmap='viridis')
