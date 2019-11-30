@@ -3,7 +3,7 @@ import os
 import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
-
+from netvlad_model import input_shape
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -13,7 +13,7 @@ def get_txtlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.txt')]
 
 
-def open_img(path, input_shape=(224, 224, 3)):
+def open_img(path, input_shape=input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
     img = image.img_to_array(img)
     img = preprocess_input(img)
@@ -22,7 +22,7 @@ def open_img(path, input_shape=(224, 224, 3)):
     return img, img_id
 
 
-def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=(224, 224, 3)):
+def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=input_shape):
 
     while True:
         batch_paths = np.random.choice(a=files,
@@ -72,6 +72,26 @@ def generate_index_mirflickr(path):
                 images_dict[img_name] = [tag_name]
     return images_dict, classes
 
+def generate_index_ukbench(path):
+    imnames = get_imlist(path)
+    image_dict = {}
+    classes = set()
+
+    to_strip_front = len(".jpg")
+    to_strip_back = len("ukbench/ukbench")
+
+    for name in imnames:
+        id = name[:-to_strip_front]
+        id = id[to_strip_back:]
+        id_int = int(id)
+        query = (id_int)//4
+
+        image_dict[name[len("ukbench/"):]] = [str(query)]
+        classes.add(str(query))
+
+    return image_dict, list(classes)
+
+
 
 def generate_index_holidays(path):
     #relevant_tags_txt = get_txtlist(path)
@@ -96,5 +116,8 @@ def generate_index_holidays(path):
 
     return images_dict, sorted(list(classes))
 
-#index, classes = generate_index_holidays('labeled.dat')
-#print(index)
+#index, classes = generate_index_ukbench('ukbench')
+#print(len(index), len(classes))
+
+#for k in sorted(index.keys()):
+#    print(k, index[k])
