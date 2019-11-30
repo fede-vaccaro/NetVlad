@@ -23,7 +23,7 @@ class NetVLADModel:
             layer.trainable = False
             # print(layer, layer.trainable)
 
-        #model.get_layer('block5_conv1').trainable = True
+        model.get_layer('block5_conv1').trainable = True
         custom_layer = model.get_layer(layer_name)
         custom_layer.trainable = True
 

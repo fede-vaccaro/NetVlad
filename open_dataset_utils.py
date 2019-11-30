@@ -4,6 +4,7 @@ import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from netvlad_model import input_shape
+from keras.preprocessing.image import ImageDataGenerator
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -22,7 +23,14 @@ def open_img(path, input_shape=input_shape):
     return img, img_id
 
 
-def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=input_shape):
+def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=input_shape, augmentation=False):
+    train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
+                                       width_shift_range=0.4,
+                                       height_shift_range=0.4,
+                                       shear_range=0.1,
+                                       zoom_range=0.4,
+                                       horizontal_flip=False,
+                                       fill_mode='nearest')
 
     while True:
         batch_paths = np.random.choice(a=files,
@@ -48,7 +56,10 @@ def image_generator(files, index, classes, net_output=0, batch_size=64, input_sh
         # label_cross = np.dot(label_batch, label_batch.T)
         # label_cross_bool = label_cross.astype('bool')
         if net_output is not 0:
-            yield ([x_batch, label_batch], y_batch)
+            if augmentation:
+                generator_augmentation = train_datagen.flow(x_batch, label_batch, batch_size=batch_size, shuffle=True)
+                x_batch, label_batch = next(generator_augmentation)
+                yield ([x_batch, label_batch], y_batch)
         else:
             yield x_batch
 
@@ -116,8 +127,46 @@ def generate_index_holidays(path):
 
     return images_dict, sorted(list(classes))
 
+
+def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, n_classes=None, train_set=True):
+    if train_set:
+        train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
+                                       width_shift_range=0.4,
+                                       height_shift_range=0.4,
+                                       shear_range=0.4,
+                                       zoom_range=0.4,
+                                       horizontal_flip=False,
+                                       fill_mode='nearest')
+    else:
+        train_datagen = ImageDataGenerator(rescale=1./255.)
+
+    train_generator = train_datagen.flow_from_directory(
+        # This is the target directory
+        train_dir,
+        # All images will be resized to 150x150
+        target_size=(input_shape[0], input_shape[1]),
+        batch_size=batch_size,
+        # Since we use binary_crossentropy loss, we need binary labels
+        class_mode='categorical')
+
+    print("samples: ", train_generator.samples)
+
+
+    while True:
+        x_, y_ = next(train_generator)
+        y_fake = np.zeros((len(x_), net_output + n_classes))
+
+        if net_output is not None:
+            yield ([x_, y_], y_fake)
+        else:
+            yield x_
+
 #index, classes = generate_index_ukbench('ukbench')
 #print(len(index), len(classes))
 
 #for k in sorted(index.keys()):
 #    print(k, index[k])
+#custom_generator = custom_generator_from_keras("seefood/train", 32, net_output = int(32e3), n_classes=2)
+
+#for el in custom_generator:
+#    print(el[0][0].shape, el[0][1].shape, el[1].shape)

@@ -14,12 +14,13 @@ from netvlad_model import input_shape
 import open_dataset_utils as my_utils
 # index, classes = my_utils.generate_index_holidays('labeled.dat')
 # files = my_utils.get_imlist('holidays_small')
-# index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
-# files = ["mirflickr/" + k for k in list(index.keys())]
+index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
+files = ["mirflickr/" + k for k in list(index.keys())]
 
-index, classes = my_utils.generate_index_ukbench('ukbench')
-files = ["ukbench/" + k for k in list(index.keys())]
+# index, classes = my_utils.generate_index_ukbench('ukbench')
+# files = ["ukbench/" + k for k in list(index.keys())]
 
+"""
 def comparator(filename):
     key = filename[len("ukbench/ukbench"):]
     key = key[:-len(".jpg")]
@@ -27,14 +28,15 @@ def comparator(filename):
     return key
 
 files = sorted(files, key=comparator)
-
+"""
 
 # generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=149)
-from netvlad_model import NetVLADModel, NetVLADModelRetinaNet
+from netvlad_model import NetVLADModel#, NetVLADModelRetinaNet
 
 my_model = NetVLADModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
-vgg_netvlad = my_model.build_netvladmodel(n_classes=len(classes))
+n_classes = 1691
+vgg_netvlad = my_model.build_netvladmodel(n_classes=n_classes)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=32)
 
@@ -48,6 +50,7 @@ print("features shape: ", images.shape)
 train_kmeans = True
 train = True
 import gc
+
 
 if train_kmeans:
     # my_model = NetVLADModel()
@@ -92,15 +95,19 @@ if train_kmeans:
 #%%
 
 batch_size = 96
-epochs = 32
+epochs = 16
 
 from sklearn.model_selection import train_test_split
 
 
 files_train, files_test = train_test_split(files, test_size=0.3, shuffle=False)
 
-generator = my_utils.image_generator(files=files_train, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
-test_generator = my_utils.image_generator(files=files_test, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
+#train_generator = my_utils.image_generator(files=files_train, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size, augmentation=True)
+#test_generator = my_utils.image_generator(files=files_test, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
+
+train_generator = my_utils.custom_generator_from_keras("partition_0", batch_size=batch_size, net_output=my_model.netvlad_output, n_classes=n_classes, train_set=True)
+test_generator = my_utils.custom_generator_from_keras("partition_1", batch_size=batch_size, net_output=my_model.netvlad_output, n_classes=n_classes, train_set=False)
+
 
 if train:
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
@@ -109,14 +116,14 @@ if train:
     # from triplet_loss_ import batch_hard_triplet_loss_k
 
     # train session
-    opt = Adam(lr=0.00001)  # choose optimiser. RMS is good too!
+    opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
 
     # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
     vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
 
-    steps_per_epoch = ceil(len(files_train) / batch_size)
-    steps_per_epoch_val = ceil(len(files_test) / batch_size)
+    steps_per_epoch = ceil(32000 / batch_size)
+    steps_per_epoch_val = ceil(32000 / batch_size)
 
     filepath = "weights-netvlad-{epoch:02d}-{val_loss:.2f}.hdf5"
 
@@ -125,7 +132,7 @@ if train:
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
                                   patience=3, min_lr=1e-9, verbose=1)
 
-    early_stopping = EarlyStopping(monitor='val_loss', min_delta=1e-2, patience=10, verbose=1, mode='min',
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=1e-3, patience=5, verbose=1, mode='min',
                                             baseline=None, restore_best_weights=True)
 
     #from keras import backend as K
@@ -136,10 +143,10 @@ if train:
     #print("warmed up")
 
     # K.set_value(vgg_netvlad.optimizer.lr, 0.0001) # warm up
-    H = vgg_netvlad.fit_generator(generator=generator,
+    H = vgg_netvlad.fit_generator(generator=train_generator,
                                   steps_per_epoch=steps_per_epoch,
                                   epochs=epochs,
-                                  validation_steps=steps_per_epoch_val,
+                                  validation_steps=30,#steps_per_epoch_val,
                                   validation_data=test_generator,
                                   callbacks=[reduce_lr, checkpoint, early_stopping])
 
