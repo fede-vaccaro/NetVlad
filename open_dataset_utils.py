@@ -3,8 +3,10 @@ import os
 import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
-from netvlad_model import input_shape
 from keras.preprocessing.image import ImageDataGenerator
+
+from netvlad_model import input_shape
+
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -63,6 +65,7 @@ def image_generator(files, index, classes, net_output=0, batch_size=64, input_sh
         else:
             yield x_batch
 
+
 def generate_index_mirflickr(path):
     relevant_tags_txt = get_txtlist(path)
     images_dict = {}
@@ -83,6 +86,7 @@ def generate_index_mirflickr(path):
                 images_dict[img_name] = [tag_name]
     return images_dict, classes
 
+
 def generate_index_ukbench(path):
     imnames = get_imlist(path)
     image_dict = {}
@@ -95,7 +99,7 @@ def generate_index_ukbench(path):
         id = name[:-to_strip_front]
         id = id[to_strip_back:]
         id_int = int(id)
-        query = (id_int)//4
+        query = (id_int) // 4
 
         image_dict[name[len("ukbench/"):]] = [str(query)]
         classes.add(str(query))
@@ -103,9 +107,8 @@ def generate_index_ukbench(path):
     return image_dict, list(classes)
 
 
-
 def generate_index_holidays(path):
-    #relevant_tags_txt = get_txtlist(path)
+    # relevant_tags_txt = get_txtlist(path)
 
     images_dict = {}
     classes = set()
@@ -119,7 +122,7 @@ def generate_index_holidays(path):
         img_query = split[2]
 
         if images_dict.keys().__contains__(img_name):
-                images_dict[img_name].append(img_query)
+            images_dict[img_name].append(img_query)
         else:
             images_dict[img_name] = [img_query]
 
@@ -128,19 +131,19 @@ def generate_index_holidays(path):
     return images_dict, sorted(list(classes))
 
 
-def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, n_classes=None, train_set=True):
-    if train_set:
-        train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
-                                       width_shift_range=0.4,
-                                       height_shift_range=0.4,
-                                       shear_range=0.4,
-                                       zoom_range=0.4,
-                                       horizontal_flip=False,
-                                       fill_mode='nearest')
+def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_classes=None):
+    if train_classes is None:
+        image_generator = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
+                                             width_shift_range=0.4,
+                                             height_shift_range=0.4,
+                                             shear_range=0.4,
+                                             zoom_range=0.4,
+                                             horizontal_flip=False,
+                                             fill_mode='nearest')
     else:
-        train_datagen = ImageDataGenerator(rescale=1./255.)
+        image_generator = ImageDataGenerator(rescale=1. / 255.)
 
-    train_generator = train_datagen.flow_from_directory(
+    data_generator = image_generator.flow_from_directory(
         # This is the target directory
         train_dir,
         # All images will be resized to 150x150
@@ -149,24 +152,32 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, n_classe
         # Since we use binary_crossentropy loss, we need binary labels
         class_mode='categorical')
 
-    print("samples: ", train_generator.samples)
+    print("samples: ", data_generator.samples)
 
+    def generator():
+        while True:
+            x_, y_ = next(data_generator)
+            y_fake = np.zeros((len(x_), net_output + data_generator.num_classes))
 
-    while True:
-        x_, y_ = next(train_generator)
-        y_fake = np.zeros((len(x_), net_output + n_classes))
+            if train_classes is not None:
+                classes_diff = train_classes - data_generator.num_classes
+                y_diff = np.zeros((len(y_), classes_diff))
+                y_ = np.hstack((y_, y_diff))
+                y_fake = np.hstack((y_fake, y_diff))
 
-        if net_output is not None:
-            yield ([x_, y_], y_fake)
-        else:
-            yield x_
+            if net_output is not None:
+                yield ([x_, y_], y_fake)
+            else:
+                yield x_
 
-#index, classes = generate_index_ukbench('ukbench')
-#print(len(index), len(classes))
+    return generator(), data_generator.samples, data_generator.num_classes
 
-#for k in sorted(index.keys()):
+# index, classes = generate_index_ukbench('ukbench')
+# print(len(index), len(classes))
+
+# for k in sorted(index.keys()):
 #    print(k, index[k])
-#custom_generator = custom_generator_from_keras("seefood/train", 32, net_output = int(32e3), n_classes=2)
+# custom_generator = custom_generator_from_keras("seefood/train", 32, net_output = int(32e3), n_classes=2)
 
-#for el in custom_generator:
+# for el in custom_generator:
 #    print(el[0][0].shape, el[0][1].shape, el[1].shape)
