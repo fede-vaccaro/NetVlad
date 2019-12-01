@@ -8,7 +8,7 @@ from keras.models import Model
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-input_shape = (336, 336, 3)
+input_shape = (224, 224, 3)
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
 
@@ -23,7 +23,7 @@ class NetVLADModel:
             layer.trainable = False
             # print(layer, layer.trainable)
 
-        model.get_layer('block5_conv1').trainable = True
+        #model.get_layer('block5_conv1').trainable = True
         custom_layer = model.get_layer(layer_name)
         custom_layer.trainable = True
 
@@ -36,7 +36,7 @@ class NetVLADModel:
         self.layer_name = layer_name
         self.vgg_netvlad = None
         self.images_input = None
-        self.filter_l = 21
+        self.filter_l = 14
         self.netvlad_output = self.filter_l*self.filter_l*64
 
     def get_feature_extractor(self, verbose=False):

@@ -133,11 +133,11 @@ def generate_index_holidays(path):
 
 def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_classes=None):
     if train_classes is None:
-        image_generator = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
-                                             width_shift_range=0.4,
-                                             height_shift_range=0.4,
-                                             shear_range=0.4,
-                                             zoom_range=0.4,
+        image_generator = ImageDataGenerator(rescale=1. / 255., rotation_range=45,
+                                             width_shift_range=0.2,
+                                             height_shift_range=0.2,
+                                             shear_range=0.2,
+                                             zoom_range=0.2,
                                              horizontal_flip=False,
                                              fill_mode='nearest')
     else:
@@ -150,7 +150,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
         target_size=(input_shape[0], input_shape[1]),
         batch_size=batch_size,
         # Since we use binary_crossentropy loss, we need binary labels
-        class_mode='categorical')
+        class_mode='categorical', shuffle=True)
 
     print("samples: ", data_generator.samples)
 
@@ -177,7 +177,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
 
 # for k in sorted(index.keys()):
 #    print(k, index[k])
-# custom_generator = custom_generator_from_keras("seefood/train", 32, net_output = int(32e3), n_classes=2)
+custom_generator,_ ,_  = custom_generator_from_keras("partition_0", 64, net_output = int(32e3))
 
-# for el in custom_generator:
+#for el in custom_generator:
 #    print(el[0][0].shape, el[0][1].shape, el[1].shape)

@@ -16,8 +16,8 @@ import open_dataset_utils as my_utils
 # files = my_utils.get_imlist('holidays_small')
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
-batch_size = 96
-epochs = 16
+batch_size = 256
+epochs = 20
 
 
 
@@ -44,8 +44,8 @@ vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=32)
 
-train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition_0", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
-test_generator, samples_test, _ = my_utils.custom_generator_from_keras("partition_1", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=n_classes)
+train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition_1", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
+test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=n_classes)
 
 next(train_generator)
 
@@ -58,8 +58,8 @@ for el in generator_nolabels:
     break
 print("features shape: ", images.shape)
 
-train_kmeans = True
-train = True
+train_kmeans = False
+train = False
 import gc
 
 
@@ -137,10 +137,10 @@ if train:
     checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
 
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                                  patience=3, min_lr=1e-9, verbose=1)
+                                  patience=10, min_lr=1e-9, verbose=1)
 
-    early_stopping = EarlyStopping(monitor='val_loss', min_delta=1e-3, patience=5, verbose=1, mode='min',
-                                            baseline=None, restore_best_weights=True)
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=1e-3, patience=10, verbose=1, mode='min',
+                                            baseline=None, restore_best_weights=False)
 
     #from keras import backend as K
     #K.set_value(vgg_netvlad.optimizer.lr, 0.1) # warm up
@@ -243,7 +243,7 @@ img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
 #%%
-vgg_netvlad.load_weights("model.h5")
+vgg_netvlad.load_weights("weights-netvlad-01-0.04.hdf5")
 
 #%%
 # vgg_netvlad.summary()
