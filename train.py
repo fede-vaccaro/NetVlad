@@ -17,7 +17,7 @@ import open_dataset_utils as my_utils
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
 batch_size = 256
-epochs = 20
+epochs = 400
 
 
 
@@ -44,7 +44,7 @@ vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=32)
 
-train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition_1", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
+train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
 test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=n_classes)
 
 next(train_generator)
@@ -58,8 +58,8 @@ for el in generator_nolabels:
     break
 print("features shape: ", images.shape)
 
-train_kmeans = False
-train = False
+train_kmeans = True
+train = True
 import gc
 
 
@@ -123,13 +123,13 @@ if train:
     # from triplet_loss_ import batch_hard_triplet_loss_k
 
     # train session
-    opt = Adam(lr=0.00001)  # choose optimiser. RMS is good too!
+    opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
 
     # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
     vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
 
-    steps_per_epoch = ceil(samples_train / batch_size)
+    steps_per_epoch = ceil(samples_train*6 / batch_size)
     steps_per_epoch_val = ceil(samples_test / batch_size)
 
     filepath = "weights-netvlad-{epoch:02d}-{val_loss:.2f}.hdf5"
@@ -155,7 +155,7 @@ if train:
                                   epochs=epochs,
                                   validation_steps=steps_per_epoch_val,
                                   validation_data=test_generator,
-                                  callbacks=[reduce_lr, checkpoint, early_stopping])
+                                  callbacks=[reduce_lr, checkpoint, early_stopping], use_multiprocessing=False)
 
 
     vgg_netvlad.save_weights("model.h5")
@@ -243,7 +243,7 @@ img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
 #%%
-vgg_netvlad.load_weights("weights-netvlad-01-0.04.hdf5")
+# vgg_netvlad.load_weights("weights-netvlad-15-0.71.hdf5")
 
 #%%
 # vgg_netvlad.summary()
