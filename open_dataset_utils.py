@@ -152,7 +152,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
         target_size=(input_shape[0], input_shape[1]),
         batch_size=batch_size,
         # Since we use binary_crossentropy loss, we need binary labels
-        class_mode='categorical', shuffle=True)
+        class_mode='categorical', shuffle=False)
     """
     else:
         data_generator = image_generator.flow_from_directory(
@@ -190,6 +190,50 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
 
     return generator(), data_generator.samples, data_generator.num_classes
 
+import random
+
+def landmark_generator(train_dir, batch_size=256, net_output=0):
+    classes = os.listdir(train_dir)
+
+    n_classes = batch_size // 4
+
+    while True:
+        # pick n_classes from the dirs
+        random.shuffle(classes)
+        picked_classes = classes[:n_classes]
+
+        # load each image in those classes
+        imgs = []
+        for i, c in enumerate(picked_classes):
+            images_in_c = os.listdir(train_dir + "/" + c)
+            #images_in_c = zip(images_in_c, [i]*len(images_in_c), [c]*len(images_in_c))
+            for image_in_c in images_in_c:
+                imgs += [(image_in_c, i, c)]
+
+        # randomize the image list
+        random.shuffle(imgs)
+
+        # pick the first 256 (if enough)
+        batch_size_ = min(batch_size, len(imgs))
+        imgs = imgs[:batch_size_]
+
+        images_array = []
+        label_array = []
+
+        # load the images
+        for im, index, dir in imgs:
+            image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
+            label = index
+            images_array.append(image)
+            label_array.append(label)
+
+        images_array = np.array(images_array)
+        label_array = np.array(label_array)
+
+        y_fake = np.zeros((len(images_array), net_output + 1))
+
+        yield [images_array, label_array], y_fake
+
 # index, classes = generate_index_ukbench('ukbench')
 # print(len(index), len(classes))
 
@@ -197,5 +241,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
 #    print(k, index[k])
 # custom_generator,_ ,_  = custom_generator_from_keras("partition", 64, net_output = int(32e3))
 
-# for el in custom_generator:
-#    print(el[0][0].shape, el[0][1].shape, el[1].shape)
+custom_generator = landmark_generator("partition_0", net_output=32000)
+
+#for el in custom_generator:
+#   print(el[0][0].shape, el[0][1].shape, el[1].shape)
