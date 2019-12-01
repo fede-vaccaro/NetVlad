@@ -145,18 +145,15 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
     else:
         image_generator = ImageDataGenerator(rescale=1. / 255.)
 
-    generators = []
-    if train_classes is None:
-        for i in range(6):
-            data_generator = image_generator.flow_from_directory(
-                # This is the target directory
-                train_dir + "_" + str(i),
-                # All images will be resized to 150x150
-                target_size=(input_shape[0], input_shape[1]),
-                batch_size=batch_size,
-                # Since we use binary_crossentropy loss, we need binary labels
-                class_mode='categorical', shuffle=True)
-            generators.append(data_generator)
+    data_generator = image_generator.flow_from_directory(
+        # This is the target directory
+        train_dir,
+        # All images will be resized to 150x150
+        target_size=(input_shape[0], input_shape[1]),
+        batch_size=batch_size,
+        # Since we use binary_crossentropy loss, we need binary labels
+        class_mode='categorical', shuffle=True)
+    """
     else:
         data_generator = image_generator.flow_from_directory(
             # This is the target directory
@@ -167,22 +164,24 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
             # Since we use binary_crossentropy loss, we need binary labels
             class_mode='categorical', shuffle=True)
         generators.append(data_generator)
-
+    """
     print("samples: ", data_generator.samples)
 
     def generator():
         i = 0
         while True:
-            x_, y_ = next(generators[i])
-            i = (i + 1) % len(generators)
-            #print(i)
-            y_fake = np.zeros((len(x_), net_output + data_generator.num_classes))
+            # i = i % len(generators)
+            x_, y_ = next(data_generator)
+            y_ = np.argmax(y_, axis=1)
+            i = (i + 1) % len(data_generator)
+            # print(i)
+            y_fake = np.zeros((len(x_), net_output + 1))
 
-            if train_classes is not None:
-                classes_diff = train_classes - data_generator.num_classes
-                y_diff = np.zeros((len(y_), classes_diff))
-                y_ = np.hstack((y_, y_diff))
-                y_fake = np.hstack((y_fake, y_diff))
+            # if train_classes is not None:
+            #    classes_diff = train_classes - data_generator.num_classes
+            #    y_diff = np.zeros((len(y_), classes_diff))
+            #    y_ = np.hstack((y_, y_diff))
+            #    y_fake = np.hstack((y_fake, y_diff))
 
             if net_output is not None:
                 yield ([x_, y_], y_fake)
@@ -196,7 +195,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
 
 # for k in sorted(index.keys()):
 #    print(k, index[k])
-#custom_generator,_ ,_  = custom_generator_from_keras("partition", 64, net_output = int(32e3))
+# custom_generator,_ ,_  = custom_generator_from_keras("partition", 64, net_output = int(32e3))
 
-#for el in custom_generator:
+# for el in custom_generator:
 #    print(el[0][0].shape, el[0][1].shape, el[1].shape)

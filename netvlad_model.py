@@ -23,7 +23,7 @@ class NetVLADModel:
             layer.trainable = False
             # print(layer, layer.trainable)
 
-        model.get_layer('block5_conv1').trainable = True
+        #model.get_layer('block5_conv1').trainable = True
         model.get_layer('block5_conv2').trainable = True
         custom_layer = model.get_layer(layer_name)
         custom_layer.trainable = True
@@ -60,11 +60,12 @@ class NetVLADModel:
 
         return Model(inputs=self.images_input, output=flatten)
 
-    def build_netvladmodel(self, n_classes, kmeans=None):
+    def build_netvladmodel(self, kmeans=None):
         self.images_input = Input(shape=input_shape)
         output_shape = self.base_model.output_shape
         n_filters = output_shape[3]
 
+        n_classes = 1
         label_input = Input(shape=(n_classes,), name="input_label")
 
         #transpose = Permute((3, 1, 2), input_shape=(-1, n_filters))(self.base_model([self.images_input]))

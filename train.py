@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import os
 
 import numpy as np
-from keras.applications.vgg16 import preprocess_input
+#from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from math import ceil
 from keras.optimizers import Adam
@@ -16,8 +16,8 @@ import open_dataset_utils as my_utils
 # files = my_utils.get_imlist('holidays_small')
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
-batch_size = 256
-epochs = 400
+batch_size = 200
+epochs = 100
 
 
 
@@ -44,12 +44,12 @@ vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=32)
 
-train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
+train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition_0", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
 test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=n_classes)
 
 next(train_generator)
 
-vgg_netvlad = my_model.build_netvladmodel(n_classes)
+vgg_netvlad = my_model.build_netvladmodel()
 
 images = []
 for el in generator_nolabels:
@@ -117,7 +117,8 @@ files_train, files_test = train_test_split(files, test_size=0.3, shuffle=False)
 
 
 if train:
-    from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
+    from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf
+    # from triplet_loss_ import batch_hard_triplet_loss_k
     from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 
     # from triplet_loss_ import batch_hard_triplet_loss_k
@@ -127,9 +128,9 @@ if train:
 
     # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
-    vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf_multidimlabels)
+    vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf)
 
-    steps_per_epoch = ceil(samples_train*6 / batch_size)
+    steps_per_epoch = ceil(samples_train / batch_size)
     steps_per_epoch_val = ceil(samples_test / batch_size)
 
     filepath = "weights-netvlad-{epoch:02d}-{val_loss:.2f}.hdf5"
