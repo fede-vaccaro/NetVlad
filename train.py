@@ -56,7 +56,7 @@ train_datagen = ImageDataGenerator(rescale=1./255., rotation_range=60,
                                    horizontal_flip=False,
                                    fill_mode='nearest')
 
-train_kmeans = True
+train_kmeans = False
 if train_kmeans:
 
     # my_model = NetVLADModel()
@@ -119,6 +119,9 @@ print("Loading images")
 
 #result = vgg_netvlad.predict([x_batch[:1], label_batch[:1]])
 
+print("Loading weights")
+vgg_netvlad.load_weights("weights/model__pesi887.h5")
+
 train = True
 if train:
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf_multidimlabels
@@ -174,6 +177,10 @@ if train:
         partition, _ = partitions[e % len(partitions)]
         queries_train = partition[0].tolist()
         labels_train = partition[1].tolist()
+
+        #for im in partition[0]:
+        #    plt.imshow(im.astype('int8'))
+        #    plt.show()
 
         multiplier = int(ceil(batch_size/50))
         queries_train *= 4
@@ -282,8 +289,8 @@ del img_dict
 img_tensor = np.array(img_tensor)
 
 #%%
-print("Loading weights")
-vgg_netvlad.load_weights("model.h5")
+# print("Loading weights")
+# vgg_netvlad.load_weights("model.h5")
 
 #%%
 # vgg_netvlad.summary()

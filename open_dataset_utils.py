@@ -1,7 +1,7 @@
 import os
 
 import numpy as np
-from keras.applications.resnet50 import preprocess_input
+from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 
 
@@ -13,10 +13,14 @@ def get_txtlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.txt')]
 
 
+import matplotlib.pyplot as plt
+
 def open_img(path, input_shape=(224, 224, 3)):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
     img = image.img_to_array(img)
-    img = preprocess_input(img)
+    img = preprocess_input(img, data_format='channels_last', mode='tf')
+    # plt.imshow(img)
+    # plt.show()
     img_id = path.split('/')[-1]
 
     return img, img_id
