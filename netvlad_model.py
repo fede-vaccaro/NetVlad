@@ -1,7 +1,7 @@
 import numpy as np
 import vis.utils.utils
 from keras import activations
-from keras.applications import VGG16
+from keras.applications import VGG16, ResNet50
 from keras.layers import Input, Reshape, concatenate, Permute
 from keras.models import Model
 
@@ -147,3 +147,41 @@ class NetVLADModelRetinaNet(NetVLADModel):
         self.layer_name = layer_name
 
     """
+
+class NetVladResnet(NetVLADModel):
+    def __init__(self, layer_name='bn5c_branch2b'):
+        # model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
+        # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
+        model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
+
+        # set layers untrainable
+        for layer in model.layers:
+            layer.trainable = False
+            # print(layer, layer.trainable)
+
+        #for layer in model.layers[-20:]:
+        #    layer.trainable = True
+
+        model.get_layer('res5b_branch2c').trainable = True
+        model.get_layer('bn5b_branch2c').trainable = True
+
+        model.get_layer('bn5c_branch2a').trainable = True
+        model.get_layer('res5c_branch2a').trainable = True
+
+        model.get_layer('res5c_branch2b').trainable = True
+        model.get_layer('bn5c_branch2b').trainable = True
+
+        # custom_layer = model.get_layer(layer_name)
+        # custom_layer.trainable = True
+
+        # model.get_layer(layer_name).activation = activations.linear
+        # model = vis.utils.utils.apply_modifications(model)
+
+        self.backbone = model
+        self.base_model = Model(model.input, model.get_layer(layer_name).output)
+
+        self.layer_name = layer_name
+        self.vgg_netvlad = None
+        self.images_input = None
+        self.filter_l = 7
+        self.netvlad_output = self.filter_l * self.filter_l * 64

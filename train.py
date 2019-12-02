@@ -37,9 +37,9 @@ files = sorted(files, key=comparator)
 """
 
 # generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=149)
-from netvlad_model import NetVLADModel#, NetVLADModelRetinaNet
+from netvlad_model import NetVladResnet#, NetVLADModelRetinaNet
 
-my_model = NetVLADModel()
+my_model = NetVladResnet()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=32)
