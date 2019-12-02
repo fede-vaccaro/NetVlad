@@ -9,6 +9,7 @@ from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
 input_shape = (224, 224, 3)
+# input_shape = (336, 336, 3)
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
 
@@ -31,11 +32,11 @@ class NetVLADModel:
         model.get_layer(layer_name).activation = activations.linear
         model = vis.utils.utils.apply_modifications(model)
 
-        channel_red = Conv2D(256, 1)
-        out = channel_red(model.get_layer(layer_name).output)
+        #channel_red = Conv2D(256, 1)
+        #out = channel_red(model.get_layer(layer_name).output)
 
         self.backbone = model
-        self.base_model = Model(model.input, out)
+        self.base_model = Model(model.input, model.get_layer(layer_name).output)
 
 
 
@@ -102,7 +103,7 @@ class NetVLADModel:
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
-        alpha = 30.
+        alpha = 10.
 
         assignments_weights = 2. * alpha * cluster_weights
         assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)

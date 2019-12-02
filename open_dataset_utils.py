@@ -19,7 +19,7 @@ def get_txtlist(path):
 def open_img(path, input_shape=input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
     img = image.img_to_array(img)
-    img = preprocess_input(img)
+    img = preprocess_input(img, mode='tf', data_format='channels_last')
     img_id = path.split('/')[-1]
 
     return img, img_id
@@ -131,7 +131,7 @@ def generate_index_holidays(path):
     return images_dict, sorted(list(classes))
 
 
-def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_classes=None):
+def custom_generator_from_keras(train_dir, batch_size=32, net_output=None, train_classes=None):
     if train_classes is None:
         image_generator = ImageDataGenerator(rescale=1. / 255.)
         """
@@ -175,7 +175,6 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
             y_ = np.argmax(y_, axis=1)
             i = (i + 1) % len(data_generator)
             # print(i)
-            y_fake = np.zeros((len(x_), net_output + 1))
 
             # if train_classes is not None:
             #    classes_diff = train_classes - data_generator.num_classes
@@ -184,6 +183,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
             #    y_fake = np.hstack((y_fake, y_diff))
 
             if net_output is not None:
+                y_fake = np.zeros((len(x_), net_output + 1))
                 yield ([x_, y_], y_fake)
             else:
                 yield x_
