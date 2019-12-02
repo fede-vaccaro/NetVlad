@@ -2,7 +2,7 @@ import numpy as np
 import vis.utils.utils
 from keras import activations
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, Permute
+from keras.layers import Input, Reshape, concatenate, Permute, Conv2D
 from keras.models import Model
 
 from loupe_keras import NetVLAD
@@ -14,7 +14,7 @@ input_shape = (224, 224, 3)
 
 
 class NetVLADModel:
-    def __init__(self, layer_name='block5_conv3'):
+    def __init__(self, layer_name='block5_conv2'):
         model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
         # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
 
@@ -23,16 +23,21 @@ class NetVLADModel:
             layer.trainable = False
             # print(layer, layer.trainable)
 
-        #model.get_layer('block5_conv1').trainable = True
-        model.get_layer('block5_conv2').trainable = True
+        model.get_layer('block5_conv1').trainable = True
+        #model.get_layer('block5_conv2').trainable = True
         custom_layer = model.get_layer(layer_name)
         custom_layer.trainable = True
 
         model.get_layer(layer_name).activation = activations.linear
         model = vis.utils.utils.apply_modifications(model)
 
+        channel_red = Conv2D(256, 1)
+        out = channel_red(model.get_layer(layer_name).output)
+
         self.backbone = model
-        self.base_model = Model(model.input, model.get_layer(layer_name).output)
+        self.base_model = Model(model.input, out)
+
+
 
         self.layer_name = layer_name
         self.vgg_netvlad = None
@@ -42,7 +47,7 @@ class NetVLADModel:
 
     def get_feature_extractor(self, verbose=False):
         vgg = self.base_model
-        vgg = Model(vgg.input, vgg.get_layer(self.layer_name).output)
+        vgg = Model(vgg.input, vgg.output)
         if verbose:
             vgg.summary()
         return vgg, vgg.output_shape

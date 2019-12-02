@@ -192,6 +192,10 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=0, train_cl
 
 import random
 
+from keras import backend as K
+
+
+
 def landmark_generator(train_dir, batch_size=256, net_output=0):
     classes = os.listdir(train_dir)
 
