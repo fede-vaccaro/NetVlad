@@ -19,7 +19,7 @@ def get_txtlist(path):
 def open_img(path, input_shape=input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
     img = image.img_to_array(img)
-    img = preprocess_input(img, mode='tf', data_format='channels_last')
+    img = preprocess_input(img)
     img_id = path.split('/')[-1]
 
     return img, img_id

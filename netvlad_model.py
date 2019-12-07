@@ -24,6 +24,9 @@ class NetVLADModel:
             layer.trainable = False
             # print(layer, layer.trainable)
 
+        #model.get_layer('block4_conv2').trainable = True
+        #model.get_layer('block4_conv3').trainable = True
+
         model.get_layer('block5_conv1').trainable = True
         #model.get_layer('block5_conv2').trainable = True
         custom_layer = model.get_layer(layer_name)
@@ -103,7 +106,7 @@ class NetVLADModel:
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
-        alpha = 10.
+        alpha = 30.
 
         assignments_weights = 2. * alpha * cluster_weights
         assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)
