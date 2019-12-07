@@ -1,16 +1,16 @@
 import numpy as np
 import vis.utils.utils
 from keras import activations
+from keras import backend as K
+from keras import layers
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, BatchNormalization, MaxPool2D, AvgPool2D
 from keras.models import Model
 
-from loupe_keras import NetVLAD, NetFV, NetRVLAD
+from loupe_keras import NetVLAD, PCA
 from triplet_loss import L2NormLayer
 
-from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-input_shape = (224, 224, 3)
-# input_shape = (336, 336, 3)
+# input_shape = (224, 224, 3)
+input_shape = (336, 336, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -40,15 +40,16 @@ class NetVLADModel:
 
         n_filters = 512
 
-        pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
-        pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
-        pool_3 = MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
+        pool_1 = layers.MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
+        pool_2 = layers.MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
+        pool_3 = layers.MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
 
-        pool_1_reshaped = Reshape((-1, n_filters))(pool_1)
-        pool_2_reshaped = Reshape((-1, n_filters))(pool_2)
-        pool_3_reshaped = Reshape((-1, n_filters))(pool_3)
+        pool_1_reshaped = layers.Reshape((-1, n_filters))(pool_1)
+        pool_2_reshaped = layers.Reshape((-1, n_filters))(pool_2)
+        pool_3_reshaped = layers.Reshape((-1, n_filters))(pool_3)
 
-        out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
+        out = layers.concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
+
         # out = pool_1_reshaped
 
         self.backbone = model
@@ -58,7 +59,7 @@ class NetVLADModel:
         self.vgg_netvlad = None
         self.images_input = None
         self.filter_l = 14
-        self.netvlad_output = self.filter_l * self.filter_l * 64
+        self.netvlad_output = self.filter_l * self.filter_l * 128
 
     def get_feature_extractor(self, verbose=False):
         vgg = self.base_model
@@ -68,7 +69,7 @@ class NetVLADModel:
         return vgg, vgg.output_shape
 
     def get_pooled_feature_extractor(self):
-        self.images_input = Input(shape=input_shape)
+        self.images_input = layers.Input(shape=input_shape)
         from keras.layers import AvgPool2D, Flatten
 
         filter_w = self.base_model.output_shape[1]
@@ -79,13 +80,13 @@ class NetVLADModel:
 
         return Model(inputs=self.images_input, output=flatten)
 
-    def build_netvladmodel(self, kmeans=None):
-        self.images_input = Input(shape=input_shape)
+    def build_netvladmodel(self, pca=None, kmeans=None):
+        self.images_input = layers.Input(shape=input_shape)
         output_shape = self.base_model.output_shape
-        n_filters = 512
+        n_filters = 256
 
         n_classes = 1
-        label_input = Input(shape=(n_classes,), name="input_label")
+        label_input = layers.Input(shape=(n_classes,), name="input_label")
 
         # transpose = Permute((3, 1, 2), input_shape=(-1, n_filters))(self.base_model([self.images_input]))
 
@@ -94,28 +95,38 @@ class NetVLADModel:
         # vgg_output = vgg.output_shape[1]
         # batch_norm = BatchNormalization()(self.base_model([self.images_input]))
         # reshape = Reshape((-1, n_filters))(batch_norm)
+        # mean = pca.mean_
+        # components = pca.components_
+
         l2normalization = L2NormLayer()(self.base_model([self.images_input]))
-        netvlad = NetVLAD(feature_size=n_filters, max_samples=filter_l ** 2, cluster_size=64)(
-            l2normalization)
+
+        out = PCA(256, 512)(l2normalization)
+
+        # print(out)
+        #out = layers.Lambda(lambda x: K.dot((x - K.constant(mean)), K.constant(components.T)), name="pca")(
+        #    l2normalization)
+
+        # l2normalization = L2NormLayer()(out)
+        netvlad = NetVLAD(feature_size=n_filters, max_samples=filter_l ** 2, cluster_size=128)(
+            out)
 
         self.netvlad = netvlad
-
 
         # %%
 
         # embedding_output = netvlad(reshape(embedding(vgg.output)))
-        labels_plus_embeddings = concatenate([label_input, netvlad])
+        labels_plus_embeddings = layers.concatenate([label_input, netvlad])
 
         vgg_netvlad = Model(inputs=[self.images_input, label_input], outputs=labels_plus_embeddings)
-
-        if kmeans is not None:
-            self.set_netvlad_weights(kmeans)
-
         self.vgg_netvlad = vgg_netvlad
+
+        if kmeans is not None and pca is not None:
+            self.set_netvlad_weights(kmeans, pca)
+
         # vgg_netvlad.summary()
         return self.vgg_netvlad
 
-    def set_netvlad_weights(self, kmeans):
+    def set_netvlad_weights(self, kmeans, pca):
         netvlad_ = self.vgg_netvlad.get_layer('net_vlad_1')
         weights_netvlad = netvlad_.get_weights()
         # %%
@@ -138,6 +149,9 @@ class NetVLADModel:
         weights_netvlad[2] = cluster_weights
 
         netvlad_.set_weights(weights_netvlad)
+
+        pca_ = self.vgg_netvlad.get_layer('pca_1')
+        pca_.set_weights([pca.mean_, pca.components_.T])
 
     def get_netvlad_extractor(self):
         return Model(inputs=self.images_input, outputs=self.netvlad)

@@ -4,6 +4,7 @@ import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
+from sklearn.neighbors import NearestNeighbors
 
 from netvlad_model import input_shape
 
@@ -133,7 +134,7 @@ def generate_index_holidays(path):
 
 def custom_generator_from_keras(train_dir, batch_size=32, net_output=None, train_classes=None):
     if train_classes is None:
-        image_generator = ImageDataGenerator(rescale=1. / 255.)
+        image_generator = ImageDataGenerator(preprocessing_function=preprocess_input)
         """
                                              , rotation_range=45,
                                              width_shift_range=0.2,
@@ -277,7 +278,16 @@ def landmark_triplet_generator(train_dir, batch_size=256, net_output=0, model=No
         images_array = np.array(images_array)
         label_array = np.array(label_array)
 
+        nbrs = NearestNeighbors(n_neighbors=len(images_array), metric='cosine').fit(images_array)
+        distances, indices = nbrs.predict(images_array)
+
+        #find triplets:
+        for i, row in enumerate(indices):
+
+
         y_fake = np.zeros((len(images_array), net_output + 1))
+
+
 
         yield [images_array, label_array], y_fake
 

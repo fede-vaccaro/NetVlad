@@ -10,6 +10,7 @@ from keras.preprocessing import image
 from math import ceil
 from keras.optimizers import Adam, Nadam
 from netvlad_model import input_shape
+from sklearn.decomposition import PCA
 
 import open_dataset_utils as my_utils
 # index, classes = my_utils.generate_index_holidays('labeled.dat')
@@ -24,6 +25,7 @@ files = [mirflickr_path + k for k in list(index.keys())]
 
 # index, classes = my_utils.generate_index_ukbench('ukbench')
 # files = ["ukbench/" + k for k in list(index.keys())]
+
 
 """
 def comparator(filename):
@@ -49,7 +51,6 @@ train_generator = my_utils.landmark_generator("/mnt/m2/dataset/", net_output=my_
 test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=256, net_output=my_model.netvlad_output, train_classes=500)
 # k_means_train_generator, _, _ = my_utils.custom_generator_from_keras("/mnt/m2/dataset/", batch_size=200)
 
-vgg_netvlad = my_model.build_netvladmodel()
 
 images = []
 for el in generator_nolabels:
@@ -58,10 +59,11 @@ for el in generator_nolabels:
     break
 print("features shape: ", images.shape)
 
-train_kmeans = True
-train = True
+train_kmeans = False
+train = False
 import gc
 
+# vgg_netvlad.load_weights("weights/weights-netvlad-20-conv-852.hdf5")
 
 if train_kmeans:
     # my_model = NetVLADModel()
@@ -69,7 +71,7 @@ if train_kmeans:
 
 
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=40, verbose=1)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=30, verbose=1)
     print("All descs shape: ", all_descs.shape)
     # %%
 
@@ -92,18 +94,25 @@ if train_kmeans:
     np.random.shuffle(locals)
     print("Locals: {}".format(locals.shape))
     #%%
+
+    print("Fitting PCA")
+    pca = PCA(256)
+    pca.fit(locals)
+    locals = pca.transform(locals)
+
     from sklearn.cluster import MiniBatchKMeans
 
-    n_clust = 64
+    n_clust = 128
     print("Fitting k-means")
     kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals[locals.shape[0] // 4:])
 
-    my_model.set_netvlad_weights(kmeans)
-
+    # my_model.set_netvlad_weights(kmeans)
+    vgg_netvlad = my_model.build_netvladmodel(kmeans=kmeans, pca=pca)
+    vgg_netvlad.summary()
     del all_descs
     gc.collect()
 
-    vgg_netvlad.save_weights("kmeans_weights.h5")
+    # vgg_netvlad.save_weights("kmeans_weights.h5")
 
 #%%
 
@@ -128,8 +137,8 @@ if train:
 
     vgg_netvlad.summary()
 
-    # vgg_netvlad.get_layer('model_1').get_layer('block4_conv2').trainable = True
-    # vgg_netvlad.get_layer('model_1').get_layer('block4_conv3').trainable = True
+    # vgg_netvlad.get_layer('model_1').get_layer('block5_conv1').trainable = True
+    # vgg_netvlad.get_layer('model_1').get_layer('block5_conv2').trainable = True
 
     # train session
     opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
@@ -253,13 +262,13 @@ img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
 #%%
-# vgg_netvlad.load_weights("weights-netvlad-03-0.94.hdf5")
+# vgg_netvlad.load_weights("weights-netvlad-16-0883.hdf5")
+vgg_netvlad.load_weights("model.h5")
 
 #%%
 # vgg_netvlad.summary()
 all_feats = vgg_netvlad.predict(img_tensor)
 
-from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
 
 all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)

@@ -42,7 +42,6 @@ for img in all_images:
     triplets_file.write(str_ + "\n")
 triplets_file.close()
 
-"""
 
 # open images
 input_shape = (224, 224, 3)
@@ -179,4 +178,3 @@ if show_triplets:
         montage_im = montage(imfiles, thumb_size=(100, 100), ok=[True, True, False], shape=(1, 3))
         plt.imshow(montage_im)
         plt.show()
-"""

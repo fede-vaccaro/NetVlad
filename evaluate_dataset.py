@@ -68,7 +68,7 @@ def main():
         print("Loading weights: " + weight_name)
 
         vgg_netvlad.load_weights("/mnt/sdb-seagate/weights/" + weight_name)
-
+        # vgg_netvlad.load_weights("model.h5")
         print("Computing descriptors")
         all_feats = vgg_netvlad.predict(img_tensor, verbose=0)
 
@@ -85,7 +85,6 @@ def main():
             print("Computing PCA")
 
             from sklearn.decomposition import PCA
-
             all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
             all_feats_sign = np.sign(all_feats)
             all_feats = np.power(np.abs(all_feats), 0.5)

@@ -67,7 +67,6 @@ class ContextGating(layers.Layer):
         return tuple(input_shape)
 
 
-
 class NetVLAD(layers.Layer):
     """Creates a NetVLAD class.
     """
@@ -75,7 +74,7 @@ class NetVLAD(layers.Layer):
     def __init__(self, feature_size, max_samples, cluster_size, **kwargs):
         self.feature_size = feature_size
         self.max_samples = max_samples
-        #self.output_dim = output_dim
+        # self.output_dim = output_dim
         self.cluster_size = cluster_size
         # self.output_dim = output_dim
         super(NetVLAD, self).__init__(**kwargs)
@@ -132,7 +131,6 @@ class NetVLAD(layers.Layer):
         Just follow the above rules.
         """
 
-
         # n sample = S = 512
         # feature size = 196 = D
         # cluster_weights 1/2 = (196 x N_Cluster) = (D x K)
@@ -148,7 +146,7 @@ class NetVLAD(layers.Layer):
         activation = tf.nn.softmax(activation)
 
         # da S x K a... ????
-        #activation = tf.reshape(activation,
+        # activation = tf.reshape(activation,
         #                        [-1, self.max_samples, self.cluster_size])
 
         # dovrebbe da b x S x K ===> b x 1 x K
@@ -163,7 +161,7 @@ class NetVLAD(layers.Layer):
         activation = tf.transpose(activation, perm=[0, 2, 1])
 
         # b x S x D => b x S x D (inutile)
-        #reshaped_input = tf.reshape(reshaped_input, [-1,
+        # reshaped_input = tf.reshape(reshaped_input, [-1,
         #                                             self.max_samples, self.feature_size])
 
         # (K x S)*(S x D) => (K x D)
@@ -175,16 +173,39 @@ class NetVLAD(layers.Layer):
         # (b x D x K) - (b x D x K) # calcola x*act - c*act
         vlad = tf.subtract(vlad, a)
 
-
         vlad = tf.nn.l2_normalize(vlad, 1)
         vlad = tf.reshape(vlad, [-1, self.cluster_size * self.feature_size])
         vlad = tf.nn.l2_normalize(vlad, 1)
-        #vlad = K.dot(vlad, self.hidden1_weights)
+        # vlad = K.dot(vlad, self.hidden1_weights)
 
         return vlad
 
     def compute_output_shape(self, input_shape):
         return tuple([None, self.cluster_size * self.feature_size])
+
+
+class PCA(layers.Layer):
+    def __init__(self, n_components, n_features):
+        self.n_components = n_components
+        self.n_features = n_features
+        super(PCA, self).__init__()
+
+    def build(self, input_shape):
+        self.mean = self.add_weight(name='mean', shape=(self.n_features,), trainable=True, initializer=keras.initializers.random_normal(
+                                                   stddev=1./math.sqrt(self.n_features))
+                                    )
+        self.transform_matrix = self.add_weight(name='components', shape=(self.n_features, self.n_components),
+                                                trainable=True, initializer=keras.initializers.random_normal(
+                                                   stddev=1./math.sqrt(self.n_features))
+                                                )
+        super(PCA, self).build(input_shape)  # Be sure to call this at the end
+
+    def call(self, inputs):
+        output = K.dot(inputs - self.mean, self.transform_matrix)
+        return output
+        # return tf.matmul(inputs - self.mean, self.transform_matrix)
+    def compute_output_shape(self, input_shape):
+        return tuple([None, input_shape[1], self.n_components])
 
 
 class NetRVLAD(layers.Layer):
@@ -208,7 +229,7 @@ class NetRVLAD(layers.Layer):
         self.cluster_biases = self.add_weight(name='kernel_B1',
                                               shape=(self.cluster_size,),
                                               initializer=keras.initializers.random_normal(
-                                                   stddev=10.),
+                                                  stddev=10.),
                                               trainable=True)
         """self.hidden1_weights = self.add_weight(name='kernel_H1',
                                                shape=(self.cluster_size * self.feature_size, self.output_dim),
@@ -250,12 +271,12 @@ class NetRVLAD(layers.Layer):
 
         activation = tf.nn.softmax(activation)
 
-        #activation = tf.reshape(activation,
+        # activation = tf.reshape(activation,
         #                        [-1, self.max_samples, self.cluster_size])
 
         activation = tf.transpose(activation, perm=[0, 2, 1])
 
-        #reshaped_input = tf.reshape(reshaped_input, [-1,
+        # reshaped_input = tf.reshape(reshaped_input, [-1,
         #                                             self.max_samples, self.feature_size])
 
         vlad = tf.matmul(activation, reshaped_input)
@@ -350,8 +371,8 @@ class NetFV(layers.Layer):
 
     def __init__(self, feature_size, max_samples, cluster_size, **kwargs):
         self.feature_size = feature_size
-        #self.max_samples = max_samples
-        #self.output_dim = output_dim
+        # self.max_samples = max_samples
+        # self.output_dim = output_dim
         self.cluster_size = cluster_size
         super(NetFV, self).__init__(**kwargs)
 
@@ -365,17 +386,17 @@ class NetFV(layers.Layer):
         self.covar_weights = self.add_weight(name='kernel_C1',
                                              shape=(self.feature_size, self.cluster_size),
                                              initializer=keras.initializers.random_normal(
-                                                   stddev=math.sqrt(2) / math.sqrt(self.feature_size)),
+                                                 stddev=math.sqrt(2) / math.sqrt(self.feature_size)),
                                              trainable=True)
         self.cluster_biases = self.add_weight(name='kernel_B1',
                                               shape=(self.cluster_size,),
                                               initializer=keras.initializers.random_normal(
-                                                   stddev=math.sqrt(2) / math.sqrt(self.feature_size)),
+                                                  stddev=math.sqrt(2) / math.sqrt(self.feature_size)),
                                               trainable=True)
         self.cluster_weights2 = self.add_weight(name='kernel_W2',
                                                 shape=(1, self.feature_size, self.cluster_size),
                                                 initializer=keras.initializers.random_normal(
-                                                   stddev=math.sqrt(2) / math.sqrt(self.feature_size)),
+                                                    stddev=math.sqrt(2) / math.sqrt(self.feature_size)),
                                                 trainable=True)
         """self.hidden1_weights = self.add_weight(name='kernel_H1',
                                                shape=(2 * self.cluster_size * self.feature_size, self.output_dim),
@@ -420,7 +441,7 @@ class NetFV(layers.Layer):
 
         activation = tf.nn.softmax(activation)
 
-        #activation = tf.reshape(activation,
+        # activation = tf.reshape(activation,
         #                        [-1, self.max_samples, self.cluster_size])
 
         a_sum = tf.reduce_sum(activation, -2, keepdims=True)
@@ -429,7 +450,7 @@ class NetFV(layers.Layer):
 
         activation = tf.transpose(activation, perm=[0, 2, 1])
 
-        #reshaped_input = tf.reshape(reshaped_input, [-1,
+        # reshaped_input = tf.reshape(reshaped_input, [-1,
         #                                             self.max_samples, self.feature_size])
 
         fv1 = tf.matmul(activation, reshaped_input)
@@ -462,7 +483,7 @@ class NetFV(layers.Layer):
 
         fv = tf.concat([fv1, fv2], 1)
 
-        #fv = K.dot(fv, self.hidden1_weights)
+        # fv = K.dot(fv, self.hidden1_weights)
         return fv
 
     def compute_output_shape(self, input_shape):
