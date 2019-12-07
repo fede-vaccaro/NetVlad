@@ -8,7 +8,7 @@ import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from math import ceil
-from keras.optimizers import Adam
+from keras.optimizers import Adam, Nadam
 from netvlad_model import input_shape
 
 import open_dataset_utils as my_utils
@@ -17,10 +17,10 @@ import open_dataset_utils as my_utils
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
 batch_size = 200
-epochs = 40
+epochs = 20
 
-
-files = ["mirflickr/" + k for k in list(index.keys())]
+mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
+files = [mirflickr_path + k for k in list(index.keys())]
 
 # index, classes = my_utils.generate_index_ukbench('ukbench')
 # files = ["ukbench/" + k for k in list(index.keys())]
@@ -44,10 +44,10 @@ vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=256)
 
 #train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition_0", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
-train_generator = my_utils.landmark_generator("partition_0", net_output=my_model.netvlad_output)
+train_generator = my_utils.landmark_generator("/mnt/m2/dataset/", net_output=my_model.netvlad_output, batch_size=256)
 
-test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=500)
-k_means_train_generator, _, _ = my_utils.custom_generator_from_keras("partition_0", batch_size=256)
+test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=256, net_output=my_model.netvlad_output, train_classes=500)
+# k_means_train_generator, _, _ = my_utils.custom_generator_from_keras("/mnt/m2/dataset/", batch_size=200)
 
 vgg_netvlad = my_model.build_netvladmodel()
 
@@ -58,7 +58,7 @@ for el in generator_nolabels:
     break
 print("features shape: ", images.shape)
 
-train_kmeans = False
+train_kmeans = True
 train = True
 import gc
 
@@ -69,34 +69,34 @@ if train_kmeans:
 
 
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=k_means_train_generator, steps=30)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=40, verbose=1)
     print("All descs shape: ", all_descs.shape)
     # %%
 
     import random
 
     #all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
-    all_descs = all_descs.reshape((len(all_descs), all_descs.shape[1]*all_descs.shape[2], all_descs.shape[3]))
+    # all_descs = all_descs.reshape((len(all_descs), all_descs.shape[1]*all_descs.shape[2], all_descs.shape[3]))
 
-    locals = []
+    locals = np.vstack((m[np.random.randint(len(m), size=100)] for m in all_descs)).astype('float32')
 
     print("Sampling local features")
-    for desc_matrix in all_descs:
-        samples = random.sample(desc_matrix.tolist(), 50)
-        locals += samples
+    # locals = locals[ np.random.randint(locals.shape[0], ) ]
 
     #%%
 
     from sklearn.preprocessing import normalize
 
-    locals = np.array(locals, dtype='float32')
+    #locals = np.array(locals, dtype='float32')
     locals = normalize(locals, axis=1)
+    np.random.shuffle(locals)
+    print("Locals: {}".format(locals.shape))
     #%%
     from sklearn.cluster import MiniBatchKMeans
 
     n_clust = 64
     print("Fitting k-means")
-    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
+    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals[locals.shape[0] // 4:])
 
     my_model.set_netvlad_weights(kmeans)
 
@@ -118,28 +118,33 @@ files_train, files_test = train_test_split(files, test_size=0.3, shuffle=False)
 
 
 if train:
-    vgg_netvlad.load_weights("weights-netvlad-13-0.89.hdf5")
-
+    # path = "/mnt/sdb-seagate/weights/weights-netvlad-13-03.hdf5"
+    # vgg_netvlad.load_weights(path)
     from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf
     # from triplet_loss_ import batch_hard_triplet_loss_k
     from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 
     # from triplet_loss_ import batch_hard_triplet_loss_k
 
+    vgg_netvlad.summary()
+
+    # vgg_netvlad.get_layer('model_1').get_layer('block4_conv2').trainable = True
+    # vgg_netvlad.get_layer('model_1').get_layer('block4_conv3').trainable = True
+
     # train session
-    opt = Adam(lr=0.00001)  # choose optimiser. RMS is good too!
+    opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
 
     # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
     vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf)
 
     #steps_per_epoch = ceil(samples_train / batch_size)
-    steps_per_epoch = 10
+    steps_per_epoch = 50
     steps_per_epoch_val = ceil(samples_test / batch_size)
 
-    filepath = "weights-netvlad-{epoch:02d}-{val_loss:.2f}.hdf5"
+    filepath = "/mnt/sdb-seagate/weights/weights-netvlad-{epoch:02d}.hdf5"
 
-    checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
+    checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=False, mode='min')
 
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
                                   patience=10, min_lr=1e-9, verbose=1)
@@ -160,7 +165,7 @@ if train:
                                   epochs=epochs,
                                   validation_steps=steps_per_epoch_val,
                                   validation_data=test_generator,
-                                  callbacks=[reduce_lr, checkpoint, early_stopping], use_multiprocessing=False, max_queue_size=1)
+                                  callbacks=[reduce_lr, checkpoint], use_multiprocessing=False, max_queue_size=1)
 
 
     vgg_netvlad.save_weights("model.h5")
@@ -204,7 +209,7 @@ def images_to_tensor(imnames):
         img_path = 'holidays_small/' + name + '.jpg'
         img = image.load_img(img_path, target_size=(input_shape[0], input_shape[1]))
         img = image.img_to_array(img)
-        img = preprocess_input(img, mode='tf', data_format='channels_last')
+        img = preprocess_input(img)
         images_array.append(img)
     images_array = np.array(images_array)
     print(images_array.shape)
@@ -248,7 +253,7 @@ img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
 #%%
-# vgg_netvlad.load_weights("weights-netvlad-13-0.89.hdf5")
+# vgg_netvlad.load_weights("weights-netvlad-03-0.94.hdf5")
 
 #%%
 # vgg_netvlad.summary()

@@ -19,7 +19,7 @@ def get_txtlist(path):
 def open_img(path, input_shape=input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
     img = image.img_to_array(img)
-    img = preprocess_input(img, mode='tf', data_format='channels_last')
+    img = preprocess_input(img)
     img_id = path.split('/')[-1]
 
     return img, img_id
@@ -143,7 +143,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=None, train
                                              horizontal_flip=False,
                                              fill_mode='nearest')"""
     else:
-        image_generator = ImageDataGenerator(rescale=1. / 255.)
+        image_generator = ImageDataGenerator(preprocessing_function=preprocess_input)
 
     data_generator = image_generator.flow_from_directory(
         # This is the target directory
@@ -237,6 +237,50 @@ def landmark_generator(train_dir, batch_size=256, net_output=0):
         y_fake = np.zeros((len(images_array), net_output + 1))
 
         yield [images_array, label_array], y_fake
+
+
+def landmark_triplet_generator(train_dir, batch_size=256, net_output=0, model=None):
+    classes = os.listdir(train_dir)
+
+    n_classes = batch_size // 4
+
+    while True:
+        # pick n_classes from the dirs
+        random.shuffle(classes)
+        picked_classes = classes[:n_classes]
+
+        # load each image in those classes
+        imgs = []
+        for i, c in enumerate(picked_classes):
+            images_in_c = os.listdir(train_dir + "/" + c)
+            #images_in_c = zip(images_in_c, [i]*len(images_in_c), [c]*len(images_in_c))
+            for image_in_c in images_in_c:
+                imgs += [(image_in_c, i, c)]
+
+        # randomize the image list
+        random.shuffle(imgs)
+
+        # pick the first 256 (if enough)
+        batch_size_ = min(batch_size, len(imgs))
+        imgs = imgs[:batch_size_]
+
+        images_array = []
+        label_array = []
+
+        # load the images
+        for im, index, dir in imgs:
+            image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
+            label = index
+            images_array.append(image)
+            label_array.append(label)
+
+        images_array = np.array(images_array)
+        label_array = np.array(label_array)
+
+        y_fake = np.zeros((len(images_array), net_output + 1))
+
+        yield [images_array, label_array], y_fake
+
 
 # index, classes = generate_index_ukbench('ukbench')
 # print(len(index), len(classes))
