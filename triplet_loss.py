@@ -22,7 +22,7 @@ def triplet_loss(y_true, y_pred):
     positive_output = y_pred[1]  # shape [None, 128]
     negative_output = y_pred[2]  # shape [None, 128]
 
-    output = tf.subcract(anchor_output, positive_output)
+    output = tf.subtract(anchor_output, positive_output)
     d_pos = tf.reduce_sum(tf.square(output), 1)
     d_neg = tf.reduce_sum(tf.square(anchor_output - negative_output), 1)
 
