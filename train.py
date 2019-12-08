@@ -1,23 +1,25 @@
-#%%
-import tensorflow as tf
-import matplotlib.pyplot as plt
-
+# %%
 import os
-
-import numpy as np
-from keras.applications.vgg16 import preprocess_input
-from keras.preprocessing import image
 from math import ceil
-from keras.optimizers import Adam, Nadam
-from netvlad_model import input_shape
+
+import matplotlib.pyplot as plt
+import numpy as np
+from keras import Model
+from keras.applications.vgg16 import preprocess_input
+from keras.optimizers import Adam
+from keras.preprocessing import image
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import normalize
 
 import open_dataset_utils as my_utils
+from netvlad_model import input_shape
+
 # index, classes = my_utils.generate_index_holidays('labeled.dat')
 # files = my_utils.get_imlist('holidays_small')
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
-batch_size = 200
-epochs = 20
+batch_size = 2048
+epochs = 10
 
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
 files = [mirflickr_path + k for k in list(index.keys())]
@@ -36,21 +38,22 @@ files = sorted(files, key=comparator)
 """
 
 # generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=149)
-from netvlad_model import NetVLADModel#, NetVLADModelRetinaNet
+from netvlad_model import NetVLADSiameseModel  # , NetVLADModelRetinaNet
 
-my_model = NetVLADModel()
+my_model = NetVLADSiameseModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=256)
 
-#train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition_0", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
-train_generator = my_utils.landmark_generator("/mnt/m2/dataset/", net_output=my_model.netvlad_output, batch_size=256)
+# train_generator, samples_train, n_classes = my_utils.custom_generator_from_keras("partition_0", batch_size=batch_size, net_output=my_model.netvlad_output, train_classes=None)
 
-test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=256, net_output=my_model.netvlad_output, train_classes=500)
+test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=200,
+                                                                       net_output=my_model.netvlad_output,
+                                                                       train_classes=500)
 # k_means_train_generator, _, _ = my_utils.custom_generator_from_keras("/mnt/m2/dataset/", batch_size=200)
 
 vgg_netvlad = my_model.build_netvladmodel()
-
+# p = vgg_netvlad.predict([np.zeros((1, 224, 224, 3))] * 3)
 images = []
 for el in generator_nolabels:
     x_batch = el
@@ -58,24 +61,22 @@ for el in generator_nolabels:
     break
 print("features shape: ", images.shape)
 
-train_kmeans = True
+train_kmeans = False
 train = True
 import gc
-
 
 if train_kmeans:
     # my_model = NetVLADModel()
     # %%
 
-
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=40, verbose=1)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=1, verbose=1)
     print("All descs shape: ", all_descs.shape)
     # %%
 
     import random
 
-    #all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
+    # all_descs_ = np.transpose(all_descs, axes=(0, 3, 1, 2))
     # all_descs = all_descs.reshape((len(all_descs), all_descs.shape[1]*all_descs.shape[2], all_descs.shape[3]))
 
     locals = np.vstack((m[np.random.randint(len(m), size=100)] for m in all_descs)).astype('float32')
@@ -83,15 +84,15 @@ if train_kmeans:
     print("Sampling local features")
     # locals = locals[ np.random.randint(locals.shape[0], ) ]
 
-    #%%
+    # %%
 
     from sklearn.preprocessing import normalize
 
-    #locals = np.array(locals, dtype='float32')
+    # locals = np.array(locals, dtype='float32')
     locals = normalize(locals, axis=1)
     np.random.shuffle(locals)
     print("Locals: {}".format(locals.shape))
-    #%%
+    # %%
     from sklearn.cluster import MiniBatchKMeans
 
     n_clust = 64
@@ -105,22 +106,21 @@ if train_kmeans:
 
     vgg_netvlad.save_weights("kmeans_weights.h5")
 
-#%%
+# %%
 
 
 from sklearn.model_selection import train_test_split
 
-
 files_train, files_test = train_test_split(files, test_size=0.3, shuffle=False)
 
-#train_generator = my_utils.image_generator(files=files_train, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size, augmentation=True)
-#test_generator = my_utils.image_generator(files=files_test, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
+# train_generator = my_utils.image_generator(files=files_train, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size, augmentation=True)
+# test_generator = my_utils.image_generator(files=files_test, index=index, classes=classes, net_output=my_model.netvlad_output, batch_size=batch_size)
 
 
 if train:
     # path = "/mnt/sdb-seagate/weights/weights-netvlad-13-03.hdf5"
     # vgg_netvlad.load_weights(path)
-    from triplet_loss import TripletLossLayer, triplet_loss_adapted_from_tf
+    from triplet_loss import triplet_loss, TripletLossLayer
     # from triplet_loss_ import batch_hard_triplet_loss_k
     from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 
@@ -136,37 +136,43 @@ if train:
 
     # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
-    vgg_netvlad.compile(optimizer=opt, loss=triplet_loss_adapted_from_tf)
+    vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
+    vgg_netvlad.compile(optimizer=opt)
 
-    #steps_per_epoch = ceil(samples_train / batch_size)
+    # steps_per_epoch = ceil(samples_train / batch_size)
     steps_per_epoch = 50
     steps_per_epoch_val = ceil(samples_test / batch_size)
 
     filepath = "/mnt/sdb-seagate/weights/weights-netvlad-{epoch:02d}.hdf5"
 
-    checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=False, mode='min')
+    checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=False, mode='min',
+                                 save_weights_only=True)
 
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5,
                                   patience=10, min_lr=1e-9, verbose=1)
 
     early_stopping = EarlyStopping(monitor='val_loss', min_delta=1e-3, patience=10, verbose=1, mode='min',
-                                            baseline=None, restore_best_weights=False)
+                                   baseline=None, restore_best_weights=False)
 
-    #from keras import backend as K
-    #K.set_value(vgg_netvlad.optimizer.lr, 0.1) # warm up
-    #vgg_netvlad.fit_generator(generator=generator,
+    # from keras import backend as K
+    # K.set_value(vgg_netvlad.optimizer.lr, 0.1) # warm up
+    # vgg_netvlad.fit_generator(generator=generator,
     #                              steps_per_epoch=10,
     #                              epochs=3, use_multiprocessing=False)
-    #print("warmed up")
+    # print("warmed up")
+
+    train_generator = my_utils.landmark_triplet_generator("/mnt/m2/dataset/", model=my_model.get_netvlad_extractor(),
+                                                          batch_size=batch_size, netbatch_size=32)
+
+    test_generator = my_utils.holidays_triplet_generator("holidays_small_l", model=my_model.get_netvlad_extractor(), netbatch_size=32)
 
     # K.set_value(vgg_netvlad.optimizer.lr, 0.0001) # warm up
     H = vgg_netvlad.fit_generator(generator=train_generator,
                                   steps_per_epoch=steps_per_epoch,
                                   epochs=epochs,
-                                  validation_steps=steps_per_epoch_val,
+                                  validation_steps=ceil(1491/batch_size),
                                   validation_data=test_generator,
                                   callbacks=[reduce_lr, checkpoint], use_multiprocessing=False, max_queue_size=1)
-
 
     vgg_netvlad.save_weights("model.h5")
     print("Saved model to disk")
@@ -178,12 +184,12 @@ if train:
     plt.title('Train/validation loss')
     plt.show()
 
-#%%
-
+# %%
+# vgg_netvlad.load_weights("weights-netvlad-10.hdf5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 result = vgg_netvlad.predict(images[:1])
-#%%
+# %%
 
 print("Testing model")
 
@@ -191,7 +197,8 @@ print("Testing model")
 # this function create a perfect ranking :)
 from sklearn.neighbors import NearestNeighbors
 
-#input_shape = (224, 224, 3)
+
+# input_shape = (224, 224, 3)
 
 
 def get_imlist_(path="holidays_small"):
@@ -224,14 +231,15 @@ query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] ==
 # check that everything is fine - expected output: "tot images = 1491, query images = 500"
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
-#%%
+
+# %%
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
 
 def create_image_dict(img_list):
-    #input_shape = (224, 224, 3)
+    # input_shape = (224, 224, 3)
     tensor = {}
     for path in img_list:
         img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
@@ -243,7 +251,7 @@ def create_image_dict(img_list):
     return tensor
 
 
-#%%
+# %%
 
 img_dict = create_image_dict(get_imlist('holidays_small'))
 img_dict.keys()
@@ -252,16 +260,13 @@ img_dict.keys()
 img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
-#%%
-# vgg_netvlad.load_weights("weights-netvlad-03-0.94.hdf5")
+# %%
 
-#%%
+# %%
 # vgg_netvlad.summary()
 all_feats = vgg_netvlad.predict(img_tensor)
 
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import normalize
-
+print("")
 all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
 all_feats_sign = np.sign(all_feats)
 all_feats = np.power(np.abs(all_feats), 0.5)
@@ -269,14 +274,14 @@ all_feats = np.multiply(all_feats, all_feats_sign)
 all_feats = normalize(all_feats)
 
 
-#all_feats = all_feats[:, n_queries:]
+# all_feats = all_feats[:, n_queries:]
 
 plt.imshow(all_feats, cmap='viridis')
 plt.colorbar()
 plt.grid(False)
 plt.show()
 
-#%%
+# %%
 
 query_feats = all_feats[query_imids]
 
@@ -285,7 +290,7 @@ nbrs = NearestNeighbors(n_neighbors=1491, metric='cosine').fit(all_feats)
 distances, indices = nbrs.kneighbors(query_feats)
 
 
-#%%
+# %%
 
 def make_perfect_holidays_result(imnames, q_ids):
     perfect_idx = []
@@ -369,7 +374,7 @@ def montage(imfiles, thumb_size=(100, 100), ok=None, shape=None):
     return new_im
 
 
-#%%
+# %%
 
 # here we show the first 25 queries and their 15 closest neighbours retrieved
 # gree border means ok, red wrong :)
@@ -390,12 +395,11 @@ def show_result(display_idx, nqueries=10, nresults=10, ts=(100, 100)):
             # use image name to determine if it is a TP or FP result
             oks.append(imnames[qres][:4] == imnames[qimno][:4])
             imfiles.append('holidays_small/' + imnames[qres] + '.jpg')
-        #print(qno, (imfiles))
+        # print(qno, (imfiles))
         plt.imshow(montage(imfiles, thumb_size=ts, ok=oks, shape=(1, nres)))
         plt.show()
 
 
-
-#%%
+# %%
 
 show_result(indices, nqueries=200)
