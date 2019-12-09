@@ -19,7 +19,7 @@ from netvlad_model import input_shape
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
 batch_size = 2048
-epochs = 40
+epochs = 20
 
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
 files = [mirflickr_path + k for k in list(index.keys())]
@@ -62,7 +62,7 @@ for el in generator_nolabels:
 print("features shape: ", images.shape)
 
 train_kmeans = False
-train = False
+train = True
 
 import gc
 
@@ -120,15 +120,21 @@ files_train, files_test = train_test_split(files, test_size=0.3, shuffle=False)
 
 if train:
     # path = "/mnt/sdb-seagate/weights/weights-netvlad-13-03.hdf5"
-    # vgg_netvlad.load_weights(path)
+    vgg_netvlad.load_weights("model_e_conv_9.h5")
+
     from triplet_loss import TripletLossLayer
     # from triplet_loss_ import batch_hard_triplet_loss_k
     from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 
     # from triplet_loss_ import batch_hard_triplet_loss_k
 
-    vgg_netvlad.summary()
+    vgg_netvlad.get_layer('model_3').get_layer('block5_conv1').trainable = True
+    vgg_netvlad.get_layer('model_3').get_layer('block5_conv2').trainable = True
 
+    vgg_netvlad.get_layer('model_3').get_layer('block4_conv1').trainable = True
+    vgg_netvlad.get_layer('model_3').get_layer('block4_conv2').trainable = True
+    vgg_netvlad.get_layer('model_3').get_layer('block4_conv3').trainable = True
+    vgg_netvlad.summary()
     # vgg_netvlad.get_layer('model_1').get_layer('block4_conv2').trainable = True
     # vgg_netvlad.get_layer('model_1').get_layer('block4_conv3').trainable = True
 
@@ -182,6 +188,7 @@ if train:
 
     for e in range(epochs):
         t0 = time.time()
+        print("Starting epoch {}".format(e))
         for s in range(steps_per_epoch):
             x, y = next(train_generator)
             loss = vgg_netvlad.train_on_batch(x, y)
@@ -205,9 +212,9 @@ if train:
         val_losses.append(val_loss)
 
         if val_loss < min_val_loss:
-            model_name = "model_e{}.h5".format(e)
+            model_name = "model_e_conv_{}_fine_tuned.h5".format(e)
             print("Val. loss improved from {}. Saving model to: {}".format(min_val_loss, model_name))
-            vgg_netvlad.save_weights(model_name)
+            vgg_netvlad.save(model_name)
         else:
             print("Val loss ({}) did not improved from {}".format(val_loss, min_val_loss))
              # val_losses.append(val_loss)
@@ -218,6 +225,7 @@ if train:
 
     vgg_netvlad.save_weights("model.h5")
     print("Saved model to disk")
+    quit()
 
     plt.figure(figsize=(8, 8))
     # plt.plot(H.history['loss'], label='training loss')
@@ -227,7 +235,8 @@ if train:
     plt.show()
 
 # %%
-vgg_netvlad.load_weights("model_e35_891.h5")
+
+vgg_netvlad.load_weights("model_e_conv_9.h5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 result = vgg_netvlad.predict(images[:1])
@@ -309,7 +318,7 @@ img_tensor = np.array(img_tensor)
 all_feats = vgg_netvlad.predict(img_tensor)
 
 print("")
-# all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
+all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
 all_feats_sign = np.sign(all_feats)
 all_feats = np.power(np.abs(all_feats), 0.5)
 all_feats = np.multiply(all_feats, all_feats_sign)

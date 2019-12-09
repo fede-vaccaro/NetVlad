@@ -2,15 +2,15 @@ import numpy as np
 import vis.utils.utils
 from keras import activations
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda
+from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda, Conv2D
 from keras.models import Model
 
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-# input_shape = (224, 224, 3)
-input_shape = (336, 336, 3)
+input_shape = (224, 224, 3)
+# input_shape = (336, 336, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -162,32 +162,35 @@ class NetVLADSiameseModel:
             layer.trainable = False
             # print(layer, layer.trainable)
 
-        model.get_layer('block4_conv1').trainable = True
-        model.get_layer('block4_conv2').trainable = True
-        model.get_layer('block4_conv3').trainable = True
+        # model.get_layer('block4_conv1').trainable = True
+        # model.get_layer('block4_conv2').trainable = True
+        # model.get_layer('block4_conv3').trainable = True
 
-        model.get_layer('block5_conv1').trainable = True
+        # model.get_layer('block5_conv1').trainable = True
         # model.get_layer('block5_conv2').trainable = True
-        custom_layer = model.get_layer(layer_name)
-        custom_layer.trainable = True
+        custom_layer = model.get_layer(layer_name).output
+        # custom_layer.trainable = True
 
-        model.get_layer(layer_name).activation = activations.linear
-        model = vis.utils.utils.apply_modifications(model)
+        # model.get_layer(layer_name).activation = activations.linear
+        # model = vis.utils.utils.apply_modifications(model)
 
         # channel_red = Conv2D(256, 1)
         # out = channel_red(model.get_layer(layer_name).output)
+
         out = model.get_layer(layer_name).output
 
-        n_filters = 512
+        n_filters = 256
 
-        pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
-        pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
-        pool_3 = MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
+        conv_1 = Conv2D(n_filters, (2,2))(custom_layer)
+        conv_2 = Conv2D(n_filters, (3,3))(custom_layer)
 
-        out_reshaped = Reshape((-1, n_filters))(out)
-        pool_1_reshaped = Reshape((-1, n_filters))(pool_1)
-        pool_2_reshaped = Reshape((-1, n_filters))(pool_2)
-        pool_3_reshaped = Reshape((-1, n_filters))(pool_3)
+        # pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
+        # pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
+
+        # out_reshaped = Reshape((-1, n_filters))(out)
+
+        pool_1_reshaped = Reshape((-1, n_filters))(conv_1)
+        pool_2_reshaped = Reshape((-1, n_filters))(conv_2)
 
         out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
         # out = pool_1_reshaped
@@ -228,7 +231,7 @@ class NetVLADSiameseModel:
         self.negative = Input(shape=input_shape)
 
         output_shape = self.base_model.output_shape
-        n_filters = 512
+        n_filters = 256
 
         n_classes = 1
 

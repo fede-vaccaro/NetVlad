@@ -531,7 +531,7 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
 
         pages = math.ceil(DIM / netbatch_size)
 
-        keep_epoch = 4
+        keep_epoch = 1
         for e in range(keep_epoch):
             for page in range(pages):
                 triplets_out = im_triplets[page * netbatch_size: min((page + 1) * netbatch_size, DIM)]
