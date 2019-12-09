@@ -10,7 +10,7 @@ from keras.optimizers import Adam
 from keras.preprocessing import image
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
-
+import time
 import open_dataset_utils as my_utils
 from netvlad_model import input_shape
 
@@ -19,7 +19,7 @@ from netvlad_model import input_shape
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
 batch_size = 2048
-epochs = 10
+epochs = 40
 
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
 files = [mirflickr_path + k for k in list(index.keys())]
@@ -62,7 +62,8 @@ for el in generator_nolabels:
 print("features shape: ", images.shape)
 
 train_kmeans = False
-train = True
+train = False
+
 import gc
 
 if train_kmeans:
@@ -70,7 +71,7 @@ if train_kmeans:
     # %%
 
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=1, verbose=1)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=20, verbose=1)
     print("All descs shape: ", all_descs.shape)
     # %%
 
@@ -120,7 +121,7 @@ files_train, files_test = train_test_split(files, test_size=0.3, shuffle=False)
 if train:
     # path = "/mnt/sdb-seagate/weights/weights-netvlad-13-03.hdf5"
     # vgg_netvlad.load_weights(path)
-    from triplet_loss import triplet_loss, TripletLossLayer
+    from triplet_loss import TripletLossLayer
     # from triplet_loss_ import batch_hard_triplet_loss_k
     from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 
@@ -132,7 +133,7 @@ if train:
     # vgg_netvlad.get_layer('model_1').get_layer('block4_conv3').trainable = True
 
     # train session
-    opt = Adam(lr=0.0001)  # choose optimiser. RMS is good too!
+    opt = Adam(lr=0.00001)  # choose optimiser. RMS is good too!
 
     # loss_layer = TripletLossLayer(alpha=1., name='triplet_loss_layer')(vgg_netvlad.output)
     # vgg_qpn = Model(inputs=vgg_qpn.input, outputs=loss_layer)
@@ -164,28 +165,69 @@ if train:
     train_generator = my_utils.landmark_triplet_generator("/mnt/m2/dataset/", model=my_model.get_netvlad_extractor(),
                                                           batch_size=batch_size, netbatch_size=32)
 
-    test_generator = my_utils.holidays_triplet_generator("holidays_small_l", model=my_model.get_netvlad_extractor(), netbatch_size=32)
+    test_generator = my_utils.holidays_triplet_generator("holidays_small_", model=my_model.get_netvlad_extractor(),
+                                                         netbatch_size=32)
 
     # K.set_value(vgg_netvlad.optimizer.lr, 0.0001) # warm up
+    """
     H = vgg_netvlad.fit_generator(generator=train_generator,
                                   steps_per_epoch=steps_per_epoch,
                                   epochs=epochs,
                                   validation_steps=ceil(1491/batch_size),
                                   validation_data=test_generator,
                                   callbacks=[reduce_lr, checkpoint], use_multiprocessing=False, max_queue_size=1)
+    """
+    losses = []
+    val_losses = []
+
+    for e in range(epochs):
+        t0 = time.time()
+        for s in range(steps_per_epoch):
+            x, y = next(train_generator)
+            loss = vgg_netvlad.train_on_batch(x, y)
+            losses.append(loss)
+            print("Loss at epoch {} step {}: {}\n".format(e, s, loss))
+
+        val_loss_e = []
+
+        for s in range(ceil(1491 / 32)):
+            x_val, _ = next(test_generator)
+            val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+            val_loss_e.append(val_loss_s)
+
+        val_loss = np.array(val_loss_e).mean()
+
+        min_val_loss = np.inf
+
+        if e > 0:
+            min_val_loss = np.min(val_losses)
+
+        val_losses.append(val_loss)
+
+        if val_loss < min_val_loss:
+            model_name = "model_e{}.h5".format(e)
+            print("Val. loss improved from {}. Saving model to: {}".format(min_val_loss, model_name))
+            vgg_netvlad.save_weights(model_name)
+        else:
+            print("Val loss ({}) did not improved from {}".format(val_loss, min_val_loss))
+             # val_losses.append(val_loss)
+
+        print("Validation loss: {}\n".format(val_loss))
+        t1 = time.time()
+        print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 
     vgg_netvlad.save_weights("model.h5")
     print("Saved model to disk")
 
     plt.figure(figsize=(8, 8))
-    plt.plot(H.history['loss'], label='training loss')
-    plt.plot(H.history['val_loss'], label='validation loss')
+    # plt.plot(H.history['loss'], label='training loss')
+    # plt.plot(H.history['val_loss'], label='validation loss')
     plt.legend()
     plt.title('Train/validation loss')
     plt.show()
 
 # %%
-# vgg_netvlad.load_weights("weights-netvlad-10.hdf5")
+vgg_netvlad.load_weights("model_e35_891.h5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 result = vgg_netvlad.predict(images[:1])
@@ -267,12 +309,11 @@ img_tensor = np.array(img_tensor)
 all_feats = vgg_netvlad.predict(img_tensor)
 
 print("")
-all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
+# all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
 all_feats_sign = np.sign(all_feats)
 all_feats = np.power(np.abs(all_feats), 0.5)
 all_feats = np.multiply(all_feats, all_feats_sign)
 all_feats = normalize(all_feats)
-
 
 # all_feats = all_feats[:, n_queries:]
 

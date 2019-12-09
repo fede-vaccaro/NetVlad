@@ -2,10 +2,10 @@ import numpy as np
 import vis.utils.utils
 from keras import activations
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, BatchNormalization, MaxPool2D, AvgPool2D, Dense, Lambda
+from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda
 from keras.models import Model
 
-from loupe_keras import NetVLAD, NetFV, NetRVLAD
+from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
@@ -103,12 +103,12 @@ class NetVLADModel:
 
         netvlad = Lambda(lambda x: K.l2_normalize(x, axis=0))(netvlad)
 
-        netvlad = Dense(512, use_bias=True, activation=None, bias_initializer='glorot_normal', kernel_initializer='glorot_normal')(netvlad)
+        netvlad = Dense(512, use_bias=True, activation=None, bias_initializer='glorot_normal',
+                        kernel_initializer='glorot_normal')(netvlad)
 
         netvlad = Lambda(lambda x: K.l2_normalize(x, axis=0))(netvlad)
 
         self.netvlad = netvlad
-
 
         # %%
 
@@ -151,6 +151,7 @@ class NetVLADModel:
     def get_netvlad_extractor(self):
         return Model(inputs=self.images_input, outputs=self.netvlad)
 
+
 class NetVLADSiameseModel:
     def __init__(self, layer_name='block5_conv2'):
         model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
@@ -160,6 +161,10 @@ class NetVLADSiameseModel:
         for layer in model.layers:
             layer.trainable = False
             # print(layer, layer.trainable)
+
+        model.get_layer('block4_conv1').trainable = True
+        model.get_layer('block4_conv2').trainable = True
+        model.get_layer('block4_conv3').trainable = True
 
         model.get_layer('block5_conv1').trainable = True
         # model.get_layer('block5_conv2').trainable = True
@@ -253,7 +258,8 @@ class NetVLADSiameseModel:
             [netvlad_a, netvlad_p, netvlad_n]
         )
 
-        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative], outputs=[netvlad_a, netvlad_p, netvlad_n])
+        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative],
+                            outputs=[netvlad_a, netvlad_p, netvlad_n])
 
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
@@ -289,6 +295,7 @@ class NetVLADSiameseModel:
     def get_netvlad_extractor(self):
         # return Model(inputs=self.images_input, outputs=self.netvlad)
         return self.netvlad_base
+
 
 """
 from keras_retinanet.keras_retinanet import models
