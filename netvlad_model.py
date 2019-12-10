@@ -9,8 +9,8 @@ from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-# input_shape = (224, 224, 3)
-input_shape = (336, 336, 3)
+input_shape = (224, 224, 3)
+# input_shape = (336, 336, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)

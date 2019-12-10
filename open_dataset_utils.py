@@ -3,7 +3,7 @@ import os
 import threading
 
 import numpy as np
-from keras.applications.vgg16 import preprocess_input, VGG16
+from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
@@ -244,22 +244,6 @@ def landmark_generator(train_dir, batch_size=256, net_output=0):
 
 import gc
 
-from keras.utils import Sequence
-
-
-class LandmarkTripletGenerator(Sequence):
-    def __init__(self, train_dir, batch_size=2048, netbatch_size=24, model=None):
-        self.netbatch_size = netbatch_size
-        self.landmark_triplet_generator = landmark_triplet_generator(train_dir, batch_size, netbatch_size, model)
-
-    def __getitem__(self, item):
-        next_ = next(self.landmark_triplet_generator)
-        return next_
-
-    def __len__(self):
-        return self.netbatch_size
-
-
 import queue
 
 
@@ -270,9 +254,10 @@ class Loader(threading.Thread):
         self.n_classes = n_classes
         self.train_dir = train_dir
 
+        self.keep_loading = True
+
         self.q = queue.Queue(4)
         super(Loader, self).__init__()
-
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
         if not self.q.full():
@@ -311,8 +296,105 @@ class Loader(threading.Thread):
     # self.label_array = np.array(label_array)
 
     def run(self) -> None:
-        while True:
+        while self.keep_loading:
             self.load_batch(self.batch_size, self.classes, self.n_classes, self.train_dir)
+
+    def stop_loading(self):
+        self.keep_loading = False
+        self.q.queue.clear()
+
+
+class LandmarkTripletGenerator():
+    def __init__(self, train_dir, batch_size=2048, net_batch_size=24, model=None):
+        classes = os.listdir(train_dir)
+
+        n_classes = batch_size // 4
+
+        self.loader = Loader(batch_size, classes, n_classes, train_dir)
+        self.loader.start()
+
+        self.net_batch_size = net_batch_size
+        self.model = model
+
+    def generator(self):
+        while True:
+            print("New iteration")
+            # pick n_classes from the dirs
+
+            # images_array, label_array = load_batch(batch_size, classes, n_classes, train_dir)
+            # if loader.q.empty():
+            #   loader.q.join()
+
+            images_array, label_array = self.loader.q.get()
+
+            print("Computing descriptors (consumer thread)")
+            feats = self.model.predict(images_array)
+            feats = normalize(feats)
+
+            nbrs = NearestNeighbors(n_neighbors=len(images_array), metric='l2').fit(feats)
+            distances, indices = nbrs.kneighbors(feats)
+
+            triplets = []
+
+            # find triplets:
+            print("Finding triplets")
+            for i, row in enumerate(indices):
+                anchor_label = label_array[i]
+
+                j_neg = -1
+                j_pos = -1
+
+                for j, col in enumerate(row):
+                    # find first negative
+                    r_label = label_array[col]
+                    if (j_pos == -1) and (j_neg == -1) and (
+                            r_label == anchor_label):  # scorre finchè non trova il primo negativo
+                        continue
+                    elif (j_neg == -1) and (r_label != anchor_label):
+                        j_neg = j
+                        if j_neg > 1:  # and (np.random.uniform() > 0.5):
+                            j_pos = j_neg - 1
+                    elif (j_neg != -1) and (r_label == anchor_label):
+                        j_pos = j
+
+                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < 20):
+                        triplet = row[0], row[j_pos], row[j_neg]
+                        triplets.append(triplet)
+
+                        if False:
+                            print("Distance between indices (p:{}, n:{}) : {}".format(j_pos, j_neg, j_pos - j_neg))
+                            # print("L2 distance between query and positive: ", distances[i][j_pos])
+                            # print("L2 distance between query and negative: ", distances[i][j_neg])
+                            # print("Triplete Loss (a=0.1): ", 0.1 + distances[i][j_pos] ** 2. - distances[i][j_neg] ** 2.)
+                            # for t in triplet:
+                            #    plt.imshow(images_array[t]*0.5 + 0.5)
+                            #    plt.show()
+                            i, j, k = triplet
+                            t_ = (images_array[i], images_array[j], images_array[k])
+                            show_triplet(t_)
+                            # time.sleep(6)
+                        break
+
+            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
+            random.shuffle(im_triplets)
+            DIM = 256  # batch_size // 3
+
+            del images_array, indices, distances, feats
+            gc.collect()
+
+            # print(len(im_triplets))
+            im_triplets = im_triplets[:DIM]
+
+            pages = math.ceil(DIM / self.net_batch_size)
+            for page in range(pages):
+                y_fake = np.zeros((self.net_batch_size, 64 * 512 * 3))
+                triplets_out = im_triplets[page * self.net_batch_size: min((page + 1) * self.net_batch_size, DIM)]
+
+                anchors = np.array([t[0] for t in triplets_out])
+                positives = np.array([t[1] for t in triplets_out])
+                negatives = np.array([t[2] for t in triplets_out])
+
+                yield [anchors, positives, negatives], None  # , [y_fake]*3
 
 
 def landmark_triplet_generator(train_dir, batch_size=2048, netbatch_size=24, model=None):
@@ -383,7 +465,7 @@ def landmark_triplet_generator(train_dir, batch_size=2048, netbatch_size=24, mod
 
         im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
         random.shuffle(im_triplets)
-        DIM = 256 #batch_size // 3
+        DIM = 256  # batch_size // 3
 
         del images_array, indices, distances, feats
         gc.collect()
@@ -499,7 +581,7 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
                     # continue
                 elif (j_neg == -1) and (r_label != anchor_label):
                     j_neg = j
-                elif (j_neg != -1) and (r_label == anchor_label): # se ha trovato prima un negativo di un positivo
+                elif (j_neg != -1) and (r_label == anchor_label):  # se ha trovato prima un negativo di un positivo
                     j_pos = j
 
             if (j_pos is not -1) and (j_neg is not -1):
