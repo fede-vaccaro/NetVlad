@@ -19,15 +19,15 @@ from triplet_loss import TripletLossLayer
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
 batch_size = 2048
-epochs = 40
+epochs = 20
 
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
 files = [mirflickr_path + k for k in list(index.keys())]
 
 # generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=149)
-from netvlad_model import NetVLADSiameseModel  # , NetVLADModelRetinaNet
+from netvlad_model import NetVLADSiameseModel, NetVladResnet  # , NetVLADModelRetinaNet
 
-my_model = NetVLADSiameseModel()
+my_model = NetVladResnet()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=256)
@@ -45,7 +45,7 @@ for el in generator_nolabels:
     break
 print("features shape: ", images.shape)
 
-train_kmeans = False
+train_kmeans = True
 train = True
 
 import gc
@@ -58,7 +58,7 @@ if train_kmeans:
 
     import random
 
-    locals = np.vstack((m[np.random.randint(len(m), size=100)] for m in all_descs)).astype('float32')
+    locals = np.vstack((m[np.random.randint(len(m), size=20)] for m in all_descs)).astype('float32')
 
     print("Sampling local features")
     # %%
@@ -176,7 +176,7 @@ if train:
 # %%
 
 
-# vgg_netvlad.load_weights("model_e35_891.h5")
+vgg_netvlad.load_weights("model_e26.h5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 result = vgg_netvlad.predict(images[:1])

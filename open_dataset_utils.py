@@ -256,7 +256,7 @@ class Loader(threading.Thread):
 
         self.keep_loading = True
 
-        self.q = queue.Queue(4)
+        self.q = queue.Queue(3)
         super(Loader, self).__init__()
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
@@ -352,7 +352,7 @@ class LandmarkTripletGenerator():
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
                         j_neg = j
-                        if j_neg > 1:  # and (np.random.uniform() > 0.5):
+                        if j_neg > 1 and (np.random.uniform() > 0.5):
                             j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
