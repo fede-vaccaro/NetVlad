@@ -1,26 +1,28 @@
 # %%
-import os
+import gc
 import time
 from math import ceil
 
 import matplotlib.pyplot as plt
 import numpy as np
 from keras import Model
-from keras.applications.vgg16 import preprocess_input
+from keras import backend as K
 from keras.optimizers import Adam
-from keras.preprocessing import image
+from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
+import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
-from netvlad_model import input_shape
 from triplet_loss import TripletLossLayer
 
-index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
-batch_size = 2048
+mining_batch_size = 2048
+minibatch_size = 24
 epochs = 40
 
+index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
 files = [mirflickr_path + k for k in list(index.keys())]
 
@@ -31,45 +33,26 @@ my_model = NetVLADSiameseModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=256)
-
-test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=200,
-                                                                       net_output=my_model.netvlad_output,
-                                                                       train_classes=500)
-# k_means_train_generator, _, _ = my_utils.custom_generator_from_keras("/mnt/m2/dataset/", batch_size=200)
-
 vgg_netvlad = my_model.build_netvladmodel()
-images = []
-for el in generator_nolabels:
-    x_batch = el
-    images = x_batch
-    break
-print("features shape: ", images.shape)
+
+print("Netvlad output shape: ", vgg_netvlad.output_shape)
+print("Feature extractor output shape: ", vgg.output_shape)
 
 train_kmeans = False
 train = True
-
-import gc
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
     all_descs = vgg.predict_generator(generator=generator_nolabels, steps=30, verbose=1)
     print("All descs shape: ", all_descs.shape)
-    # %%
-
-    import random
 
     locals = np.vstack((m[np.random.randint(len(m), size=100)] for m in all_descs)).astype('float32')
 
     print("Sampling local features")
-    # %%
-
-    from sklearn.preprocessing import normalize
 
     locals = normalize(locals, axis=1)
     np.random.shuffle(locals)
-    print("Locals: {}".format(locals.shape))
-    # %%
-    from sklearn.cluster import MiniBatchKMeans
+    print("Locals extracted: {}".format(locals.shape))
 
     n_clust = 64
     print("Fitting k-means")
@@ -82,42 +65,34 @@ if train_kmeans:
 
     vgg_netvlad.save_weights("kmeans_weights.h5")
 
-# %%
-
-
-from sklearn.model_selection import train_test_split
-
-files_train, files_test = train_test_split(files, test_size=0.3, shuffle=False)
-
 if train:
-    # path = "/mnt/sdb-seagate/weights/weights-netvlad-13-03.hdf5"
-    # vgg_netvlad.load_weights(path)
-
     vgg_netvlad.summary()
 
     # train session
-    opt = Adam(lr=0.00001)  # choose optimiser. RMS is good too!
+    lr = 0.00001
+    opt = Adam(lr=lr)  # choose optimiser. RMS is good too!
 
     vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
     vgg_netvlad.compile(optimizer=opt)
 
     steps_per_epoch = 50
-    steps_per_epoch_val = ceil(samples_test / batch_size)
+    steps_per_epoch_val = ceil(1491 / minibatch_size)
 
     filepath = "/mnt/sdb-seagate/weights/weights-netvlad-{epoch:02d}.hdf5"
 
     landmark_generator = my_utils.LandmarkTripletGenerator(train_dir="/mnt/m2/dataset/",
                                                            model=my_model.get_netvlad_extractor(),
-                                                           batch_size=batch_size, net_batch_size=32)
+                                                           batch_size=mining_batch_size, net_batch_size=minibatch_size)
 
     train_generator = landmark_generator.generator()
 
     test_generator = my_utils.holidays_triplet_generator("holidays_small_", model=my_model.get_netvlad_extractor(),
-                                                         netbatch_size=32)
+                                                         netbatch_size=minibatch_size)
 
     losses = []
     val_losses = []
 
+    not_improving_counter = 0
     for e in range(epochs):
         t0 = time.time()
 
@@ -134,7 +109,7 @@ if train:
 
         val_loss_e = []
 
-        for s in range(ceil(1491 / 32)):
+        for s in range(steps_per_epoch_val):
             x_val, _ = next(test_generator)
             val_loss_s = vgg_netvlad.predict_on_batch(x_val)
             val_loss_e.append(val_loss_s)
@@ -149,12 +124,19 @@ if train:
         val_losses.append(val_loss)
 
         if val_loss < min_val_loss:
-            model_name = "model_e{}.h5".format(e)
+            model_name = "model_e{}_1212.h5".format(e)
             print("Val. loss improved from {}. Saving model to: {}".format(min_val_loss, model_name))
             vgg_netvlad.save_weights(model_name)
+            not_improving_counter = 0
         else:
             print("Val loss ({}) did not improved from {}".format(val_loss, min_val_loss))
-            # val_losses.append(val_loss)
+            not_improving_counter += 1
+            print("Val loss does not improve since {} epochs".format(not_improving_counter))
+            if not_improving_counter == 15:
+                lr *= 0.5
+                K.set_value(vgg_netvlad.optimizer.lr, lr)
+                print("Learning rate set to: {}".format(lr))
+                not_improving_counter = 0
 
         print("Validation loss: {}\n".format(val_loss))
         t1 = time.time()
@@ -173,91 +155,26 @@ if train:
     plt.savefig("train_val_loss.pdf")
     # plt.show()
 
-# %%
-
-
-# vgg_netvlad.load_weights("model_e35_891.h5")
-vgg_netvlad = my_model.get_netvlad_extractor()
-vgg_netvlad.summary()
-result = vgg_netvlad.predict(images[:1])
-# %%
-
 print("Testing model")
 
-############### test model
-# this function create a perfect ranking :)
-from sklearn.neighbors import NearestNeighbors
+vgg_netvlad = my_model.get_netvlad_extractor()
+vgg_netvlad.summary()
 
-
-# input_shape = (224, 224, 3)
-
-
-def get_imlist_(path="holidays_small"):
-    imnames = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
-    imnames = [path.strip('holidays_small/') for path in imnames]
-    imnames = [path.strip('.jpg') for path in imnames]
-    return imnames
-
-
-def images_to_tensor(imnames):
-    images_array = []
-
-    # open all images
-    for name in imnames:
-        img_path = 'holidays_small/' + name + '.jpg'
-        img = image.load_img(img_path, target_size=(input_shape[0], input_shape[1]))
-        img = image.img_to_array(img)
-        img = preprocess_input(img)
-        images_array.append(img)
-    images_array = np.array(images_array)
-    print(images_array.shape)
-    # images_array = preprocess_input(images_array)
-    return images_array
-
-
-imnames = get_imlist_()
-
+imnames = hth.get_imlist_()
 query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
 
 # check that everything is fine - expected output: "tot images = 1491, query images = 500"
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
-
-# %%
-
-def get_imlist(path):
-    return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
-
-
-def create_image_dict(img_list):
-    # input_shape = (224, 224, 3)
-    tensor = {}
-    for path in img_list:
-        img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
-        img = image.img_to_array(img)
-        img = preprocess_input(img)
-        img_key = path.strip('holidays_small/')
-        tensor[img_key] = img
-    # tensor = np.array(tensor)
-    return tensor
-
-
-# %%
-
-img_dict = create_image_dict(get_imlist('holidays_small'))
+img_dict = hth.create_image_dict(hth.get_imlist('holidays_small'))
 img_dict.keys()
 
-# img_tensor = images_to_tensor(imnames)
 img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
-# %%
-
-# %%
-# vgg_netvlad.summary()
 all_feats = vgg_netvlad.predict(img_tensor)
 
-print("")
+print("Computing PCA")
 all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
 all_feats_sign = np.sign(all_feats)
 all_feats = np.power(np.abs(all_feats), 0.5)
@@ -271,124 +188,14 @@ all_feats = normalize(all_feats)
 # plt.grid(False)
 # plt.show()
 
-# %%
-
 query_feats = all_feats[query_imids]
 
-# SOLUTION
 nbrs = NearestNeighbors(n_neighbors=1491, metric='cosine').fit(all_feats)
 distances, indices = nbrs.kneighbors(query_feats)
 
 
-# %%
+print('mean AP = %.3f' % hth.mAP(query_imids, indices, imnames=imnames))
+perfect_result = hth.make_perfect_holidays_result(imnames, query_imids)
+print('Perfect mean AP = %.3f' % hth.mAP(query_imids, perfect_result, imnames=imnames))
 
-def make_perfect_holidays_result(imnames, q_ids):
-    perfect_idx = []
-    for qimno in q_ids:
-        qname = imnames[qimno]
-        positive_results = set([i for i, name in enumerate(imnames) if name != qname and name[:4] == qname[:4]])
-        ok = [qimno] + [i for i in positive_results]
-        others = [i for i in range(1491) if i not in positive_results and i != qimno]
-        perfect_idx.append(ok + others)
-    return np.array(perfect_idx)
-
-
-def mAP(q_ids, idx):
-    aps = []
-    for qimno, qres in zip(q_ids, idx):
-        qname = imnames[qimno]
-        # collect the positive results in the dataset
-        # the positives have the same prefix as the query image
-        positive_results = set([i for i, name in enumerate(imnames)
-                                if name != qname and name[:4] == qname[:4]])
-        #
-        # ranks of positives. We skip the result #0, assumed to be the query image
-        ranks = [i for i, res in enumerate(qres[1:]) if res in positive_results]
-        #
-        # accumulate trapezoids with this basis
-        recall_step = 1.0 / len(positive_results)
-        ap = 0
-        for ntp, rank in enumerate(ranks):
-            # ntp = nb of true positives so far
-            # rank = nb of retrieved items so far
-            # y-size on left side of trapezoid:
-            precision_0 = ntp / float(rank) if rank > 0 else 1.0
-            # y-size on right side of trapezoid:
-            precision_1 = (ntp + 1) / float(rank + 1)
-            ap += (precision_1 + precision_0) * recall_step / 2.0
-        # print('query %s, AP = %.3f' % (qname, ap))
-        aps.append(ap)
-    return np.mean(aps)
-
-
-print('mean AP = %.3f' % mAP(query_imids, indices))
-perfect_result = make_perfect_holidays_result(imnames, query_imids)
-print('Perfect mean AP = %.3f' % mAP(query_imids, perfect_result))
-
-import PIL
-
-import math
-
-
-def montage(imfiles, thumb_size=(100, 100), ok=None, shape=None):
-    # this function will create an image with thumbnailed version of imfiles.
-    # optionally the user can provide an ok list such that len(ok)==len(imfiles) to differentiate correct from wrong results
-    # optionally the user can provide a shape function which shapes the montage otherwise a square image is created.
-    images = [PIL.Image.open(imname).resize(thumb_size, PIL.Image.BILINEAR) for imname in imfiles]
-    # create a big image to contain all images
-    if shape is None:
-        n = int(math.sqrt(len(imfiles)))
-        m = n
-    else:
-        n = shape[0]
-        m = shape[1]
-    new_im = PIL.Image.new('RGB', (m * thumb_size[0], n * thumb_size[0]))
-    k = 0
-    for i in range(0, n * thumb_size[0], thumb_size[0]):
-        for j in range(0, m * thumb_size[0], thumb_size[0]):
-            region = (j, i)
-            if ok is not None:
-                if ok[k]:
-                    color = (0, 255, 0)
-                else:
-                    color = (255, 0, 0)
-                if k > 0:
-                    imar = np.array(images[k], dtype=np.uint8)
-                    imar[0:5, :, :] = color
-                    imar[:, 0:5, :] = color
-                    imar[-5:, :, :] = color
-                    imar[:, -5:, :] = color
-                    images[k] = PIL.Image.fromarray(imar)
-            new_im.paste(images[k], box=region)
-            k += 1
-    return new_im
-
-
-# %%
-
-# here we show the first 25 queries and their 15 closest neighbours retrieved
-# gree border means ok, red wrong :)
-def show_result(display_idx, nqueries=10, nresults=10, ts=(100, 100)):
-    if nqueries is not None:
-        nrow = nqueries  # number of query images to show
-
-    if nresults is not None:
-        nres = 10  # number of results per query
-
-    for qno in range(nrow):
-        imfiles = []
-        oks = [True]
-        # show query image with white outline
-        qimno = query_imids[qno]
-        imfiles.append('holidays_small/' + imnames[qimno] + '.jpg')
-        for qres in display_idx[qno, :nres]:
-            # use image name to determine if it is a TP or FP result
-            oks.append(imnames[qres][:4] == imnames[qimno][:4])
-            imfiles.append('holidays_small/' + imnames[qres] + '.jpg')
-        # print(qno, (imfiles))
-        plt.imshow(montage(imfiles, thumb_size=ts, ok=oks, shape=(1, nres)))
-        plt.show()
-
-# %%
-
-# show_result(indices, nqueries=200)
+# hth.show_result(indices, nqueries=200)
