@@ -1,7 +1,7 @@
 # %%
 import os
 import time
-from math import ceil
+from math import ceil, sqrt
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -46,7 +46,7 @@ for el in generator_nolabels:
 print("features shape: ", images.shape)
 
 train_kmeans = False
-train = True
+train = False
 
 import gc
 
@@ -176,10 +176,30 @@ if train:
 # %%
 
 
-# vgg_netvlad.load_weights("model_e35_891.h5")
+vgg_netvlad.load_weights("model_e204_1212.h5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
-result = vgg_netvlad.predict(images[:1])
+
+from keras import layers
+
+## defining second scale
+shape2 = (362, 362, 3)
+input2 = layers.Input(shape2)
+model2 = vgg_netvlad([input2])
+model2 = Model(input2, model2)
+
+## defining third scale
+shape3 = (256, 256, 3)
+input3 = layers.Input(shape3)
+model3 = vgg_netvlad([input3])
+model3 = Model(input3, model3)
+
+## defining fourth scale
+shape4 = (181, 181, 3)
+input4 = layers.Input(shape4)
+model4 = vgg_netvlad([input4])
+model4 = Model(input4, model4)
+
 # %%
 
 print("Testing model")
@@ -199,22 +219,6 @@ def get_imlist_(path="holidays_small"):
     return imnames
 
 
-def images_to_tensor(imnames):
-    images_array = []
-
-    # open all images
-    for name in imnames:
-        img_path = 'holidays_small/' + name + '.jpg'
-        img = image.load_img(img_path, target_size=(input_shape[0], input_shape[1]))
-        img = image.img_to_array(img)
-        img = preprocess_input(img)
-        images_array.append(img)
-    images_array = np.array(images_array)
-    print(images_array.shape)
-    # images_array = preprocess_input(images_array)
-    return images_array
-
-
 imnames = get_imlist_()
 
 query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
@@ -229,40 +233,93 @@ def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
 
-def create_image_dict(img_list):
+def create_image_dict(img_list, input_shape):
     # input_shape = (224, 224, 3)
     tensor = {}
-    for path in img_list:
+    for i, path in enumerate(img_list):
         img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
         img = image.img_to_array(img)
         img = preprocess_input(img)
-        img_key = path.strip('holidays_small/')
+        img_key = path.strip('holidays/')
         tensor[img_key] = img
+        if i % 100 == 0:
+            print("Image i loaded: ", i)
     # tensor = np.array(tensor)
     return tensor
 
 
 # %%
 
-img_dict = create_image_dict(get_imlist('holidays_small'))
-img_dict.keys()
+##### FIRST SCALE
+print("Computing first scale features")
+img_dict = create_image_dict(get_imlist('holidays'), input_shape=input_shape)
 
-# img_tensor = images_to_tensor(imnames)
 img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
-# %%
-
-# %%
-# vgg_netvlad.summary()
 all_feats = vgg_netvlad.predict(img_tensor)
+del img_tensor
+#####
 
+# ##### SECOND SCALE
+# print("Computing second scale features")
+# img_dict = create_image_dict(get_imlist('holidays_small'), input_shape=shape2)
+#
+# # img_tensor = images_to_tensor(imnames)
+# img_tensor = [img_dict[key] for key in img_dict]
+# img_tensor = np.array(img_tensor)
+#
+# all_feats_2 = model2.predict(img_tensor)
+# del img_tensor
+#####
+
+# ##### THIRD SCALE
+# print("Computing third scale features")
+# img_dict = create_image_dict(get_imlist('holidays_small'), input_shape=shape3)
+#
+# # img_tensor = images_to_tensor(imnames)
+# img_tensor = [img_dict[key] for key in img_dict]
+# img_tensor = np.array(img_tensor)
+#
+# all_feats_3 = model3.predict(img_tensor)
+# del img_tensor
+# #####
+#
+# #### FOURTH SCALE
+# print("Computing fourth scale features")
+# img_dict = create_image_dict(get_imlist('holidays_small'), input_shape=shape4)
+#
+# # img_tensor = images_to_tensor(imnames)
+# img_tensor = [img_dict[key] for key in img_dict]
+# img_tensor = np.array(img_tensor)
+#
+# all_feats_4 = model4.predict(img_tensor)
+# del img_tensor
+####
+
+# all_feats = normalize(all_feats + sqrt(2) * all_feats_2 + 2 * all_feats_3)
+
+def power_normalization(x, p=0.5):
+    x = np.sign(x)*np.abs(x)**p
+    x = normalize(x)
+    return x
 print("")
-all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
-all_feats_sign = np.sign(all_feats)
-all_feats = np.power(np.abs(all_feats), 0.5)
-all_feats = np.multiply(all_feats, all_feats_sign)
+pca = PCA(512, svd_solver='full')
+pca.fit(all_feats)
+
+all_feats = pca.transform(all_feats)
+# all_feats_2 = pca.transform(all_feats_2)
+# all_feats_3 = pca.transform(all_feats_3)
+# all_feats_4 = pca.transform(all_feats_4)
+
+all_feats = power_normalization(all_feats) # + power_normalization(all_feats_2)
 all_feats = normalize(all_feats)
+
+# all_feats = pca.transform(all_feats)
+# all_feats_sign = np.sign(all_feats)
+# all_feats = np.power(np.abs(all_feats), 0.5)
+# all_feats = np.multiply(all_feats, all_feats_sign)
+# all_feats = normalize(all_feats)
 
 # all_feats = all_feats[:, n_queries:]
 

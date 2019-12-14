@@ -9,8 +9,9 @@ from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-input_shape = (224, 224, 3)
+# input_shape = (224, 224, 3)
 # input_shape = (336, 336, 3)
+input_shape = (512, 512, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -159,7 +160,7 @@ class NetVLADSiameseModel:
 
         # set layers untrainable
         for layer in model.layers:
-            layer.trainable = False
+            layer.trainable = True
             # print(layer, layer.trainable)
 
         model.get_layer('block4_conv1').trainable = True
@@ -182,12 +183,12 @@ class NetVLADSiameseModel:
 
         pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
-        pool_3 = MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
+        # pool_3 = MaxPool2D(pool_size=7, strides=2, padding='valid')(out)
 
         out_reshaped = Reshape((-1, n_filters))(out)
         pool_1_reshaped = Reshape((-1, n_filters))(pool_1)
         pool_2_reshaped = Reshape((-1, n_filters))(pool_2)
-        pool_3_reshaped = Reshape((-1, n_filters))(pool_3)
+        # pool_3_reshaped = Reshape((-1, n_filters))(pool_3)
 
         out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
         # out = pool_1_reshaped
