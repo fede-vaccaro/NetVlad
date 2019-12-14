@@ -16,6 +16,7 @@ from sklearn.preprocessing import normalize
 import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
 from triplet_loss import TripletLossLayer
+from netvlad_model import NetVLADSiameseModel
 
 
 mining_batch_size = 2048
@@ -26,8 +27,6 @@ index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
 files = [mirflickr_path + k for k in list(index.keys())]
 
-# generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=149)
-from netvlad_model import NetVLADSiameseModel  # , NetVLADModelRetinaNet
 
 my_model = NetVLADSiameseModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
@@ -82,7 +81,7 @@ if train:
 
     landmark_generator = my_utils.LandmarkTripletGenerator(train_dir="/mnt/m2/dataset/",
                                                            model=my_model.get_netvlad_extractor(),
-                                                           batch_size=mining_batch_size, net_batch_size=minibatch_size)
+                                                           mining_batch_size=mining_batch_size, minibatch_size=minibatch_size)
 
     train_generator = landmark_generator.generator()
 
@@ -93,6 +92,7 @@ if train:
     val_losses = []
 
     not_improving_counter = 0
+    not_improving_thresh = 15
     for e in range(epochs):
         t0 = time.time()
 
@@ -132,7 +132,7 @@ if train:
             print("Val loss ({}) did not improved from {}".format(val_loss, min_val_loss))
             not_improving_counter += 1
             print("Val loss does not improve since {} epochs".format(not_improving_counter))
-            if not_improving_counter == 15:
+            if not_improving_counter == not_improving_thresh:
                 lr *= 0.5
                 K.set_value(vgg_netvlad.optimizer.lr, lr)
                 print("Learning rate set to: {}".format(lr))

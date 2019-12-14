@@ -1,14 +1,18 @@
+import gc
 import math
 import os
+import queue
+import random
 import threading
+import time
 
 import numpy as np
-from keras.applications.vgg16 import preprocess_input
+from keras.applications.vgg16 import preprocess_input, VGG16
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
-
+import matplotlib.pyplot as plt
 from netvlad_model import input_shape
 
 
@@ -22,9 +26,8 @@ def get_txtlist(path):
 
 def open_img(path, input_shape=input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
-    # img = (image.img_to_array(img) - 127.5)/127.5
-    img = image.img_to_array(img)
-    img = preprocess_input(img)
+    # img = (image.img_to_array(img) - 127.5) / 127.5
+    img = preprocess_input(image.img_to_array(img))
     img_id = path.split('/')[-1]
 
     return img, img_id
@@ -196,57 +199,6 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=None, train
     return generator(), data_generator.samples, data_generator.num_classes
 
 
-import random
-
-
-def landmark_generator(train_dir, batch_size=256, net_output=0):
-    classes = os.listdir(train_dir)
-
-    n_classes = batch_size // 4
-
-    while True:
-        # pick n_classes from the dirs
-        random.shuffle(classes)
-        picked_classes = classes[:n_classes]
-
-        # load each image in those classes
-        imgs = []
-        for i, c in enumerate(picked_classes):
-            images_in_c = os.listdir(train_dir + "/" + c)
-            # images_in_c = zip(images_in_c, [i]*len(images_in_c), [c]*len(images_in_c))
-            for image_in_c in images_in_c:
-                imgs += [(image_in_c, i, c)]
-
-        # randomize the image list
-        random.shuffle(imgs)
-
-        # pick the first 256 (if enough)
-        batch_size_ = min(batch_size, len(imgs))
-        imgs = imgs[:batch_size_]
-
-        images_array = []
-        label_array = []
-
-        # load the images
-        for im, index, dir in imgs:
-            image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
-            label = index
-            images_array.append(image)
-            label_array.append(label)
-
-        images_array = np.array(images_array)
-        label_array = np.array(label_array)
-
-        y_fake = np.zeros((len(images_array), net_output + 1))
-
-        yield [images_array, label_array], y_fake
-
-
-import gc
-
-import queue
-
-
 class Loader(threading.Thread):
     def __init__(self, batch_size, classes, n_classes, train_dir):
         self.batch_size = batch_size
@@ -305,15 +257,15 @@ class Loader(threading.Thread):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, batch_size=2048, net_batch_size=24, model=None):
+    def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None):
         classes = os.listdir(train_dir)
 
-        n_classes = batch_size // 4
+        n_classes = mining_batch_size // 4
 
-        self.loader = Loader(batch_size, classes, n_classes, train_dir)
+        self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         self.loader.start()
 
-        self.net_batch_size = net_batch_size
+        self.minibatch_size = minibatch_size
         self.model = model
 
     def generator(self):
@@ -352,13 +304,13 @@ class LandmarkTripletGenerator():
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
                         j_neg = j
-                        if j_neg > 1:  # and (np.random.uniform() > 0.5):
+                        if j_neg > 1 and (np.random.uniform() > 0.5):
                             j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < 20):
-                        triplet = row[0], row[j_pos], row[j_neg]
+                        triplet = row[0], row[j_pos], row[j_neg], r_label
                         triplets.append(triplet)
 
                         if False:
@@ -366,155 +318,46 @@ class LandmarkTripletGenerator():
                             # print("L2 distance between query and positive: ", distances[i][j_pos])
                             # print("L2 distance between query and negative: ", distances[i][j_neg])
                             # print("Triplete Loss (a=0.1): ", 0.1 + distances[i][j_pos] ** 2. - distances[i][j_neg] ** 2.)
-                            # for t in triplet:
-                            #    plt.imshow(images_array[t]*0.5 + 0.5)
-                            #    plt.show()
                             i, j, k = triplet
                             t_ = (images_array[i], images_array[j], images_array[k])
                             show_triplet(t_)
-                            # time.sleep(6)
                         break
+
+            # select triplets per classes
+            class_set = []
+            selected_triplets = []
+
+            for t in triplets:
+                label = t[3]
+                if label in class_set:
+                    continue
+                else:
+                    selected_triplets += [t[:3]]
+                    class_set += [label]
+
+            triplets = selected_triplets
+            print("Different classes: {}".format(len(class_set)))
 
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
             random.shuffle(im_triplets)
-            DIM = 256  # batch_size // 3
 
             del images_array, indices, distances, feats
             gc.collect()
 
-            # print(len(im_triplets))
-            im_triplets = im_triplets[:DIM]
+            # select just K different classes
+            K_classes = 256
 
-            pages = math.ceil(DIM / self.net_batch_size)
+            im_triplets = im_triplets[:K_classes]
+
+            pages = math.ceil(K_classes / self.minibatch_size)
             for page in range(pages):
-                y_fake = np.zeros((self.net_batch_size, 64 * 512 * 3))
-                triplets_out = im_triplets[page * self.net_batch_size: min((page + 1) * self.net_batch_size, DIM)]
+                triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
 
                 anchors = np.array([t[0] for t in triplets_out])
                 positives = np.array([t[1] for t in triplets_out])
                 negatives = np.array([t[2] for t in triplets_out])
 
                 yield [anchors, positives, negatives], None  # , [y_fake]*3
-
-
-def landmark_triplet_generator(train_dir, batch_size=2048, netbatch_size=24, model=None):
-    classes = os.listdir(train_dir)
-
-    n_classes = batch_size // 4
-
-    loader = Loader(batch_size, classes, n_classes, train_dir)
-    loader.start()
-
-    while True:
-        print("New iteration")
-        # pick n_classes from the dirs
-
-        # images_array, label_array = load_batch(batch_size, classes, n_classes, train_dir)
-        # if loader.q.empty():
-        #   loader.q.join()
-
-        images_array, label_array = loader.q.get()
-
-        print("Computing descriptors (consumer thread)")
-        feats = model.predict(images_array)
-        feats = normalize(feats)
-
-        nbrs = NearestNeighbors(n_neighbors=len(images_array), metric='l2').fit(feats)
-        distances, indices = nbrs.kneighbors(feats)
-
-        triplets = []
-
-        # find triplets:
-        print("Finding triplets")
-        for i, row in enumerate(indices):
-            anchor_label = label_array[i]
-
-            j_neg = -1
-            j_pos = -1
-
-            for j, col in enumerate(row):
-                # find first negative
-                r_label = label_array[col]
-                if (j_pos == -1) and (j_neg == -1) and (
-                        r_label == anchor_label):  # scorre finchè non trova il primo negativo
-                    continue
-                elif (j_neg == -1) and (r_label != anchor_label):
-                    j_neg = j
-                    if j_neg > 1:  # and (np.random.uniform() > 0.5):
-                        j_pos = j_neg - 1
-                elif (j_neg != -1) and (r_label == anchor_label):
-                    j_pos = j
-
-                if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < 20):
-                    triplet = row[0], row[j_pos], row[j_neg]
-                    triplets.append(triplet)
-
-                    if False:
-                        print("Distance between indices (p:{}, n:{}) : {}".format(j_pos, j_neg, j_pos - j_neg))
-                        # print("L2 distance between query and positive: ", distances[i][j_pos])
-                        # print("L2 distance between query and negative: ", distances[i][j_neg])
-                        # print("Triplete Loss (a=0.1): ", 0.1 + distances[i][j_pos] ** 2. - distances[i][j_neg] ** 2.)
-                        # for t in triplet:
-                        #    plt.imshow(images_array[t]*0.5 + 0.5)
-                        #    plt.show()
-                        i, j, k = triplet
-                        t_ = (images_array[i], images_array[j], images_array[k])
-                        show_triplet(t_)
-                        # time.sleep(6)
-                    break
-
-        im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
-        random.shuffle(im_triplets)
-        DIM = 256  # batch_size // 3
-
-        del images_array, indices, distances, feats
-        gc.collect()
-
-        # print(len(im_triplets))
-        im_triplets = im_triplets[:DIM]
-
-        pages = math.ceil(DIM / netbatch_size)
-        for page in range(pages):
-            y_fake = np.zeros((netbatch_size, 64 * 512 * 3))
-            triplets_out = im_triplets[page * netbatch_size: min((page + 1) * netbatch_size, DIM)]
-
-            anchors = np.array([t[0] for t in triplets_out])
-            positives = np.array([t[1] for t in triplets_out])
-            negatives = np.array([t[2] for t in triplets_out])
-
-            yield [anchors, positives, negatives], None  # , [y_fake]*3
-
-        # y_fake = np.zeros((len(images_array), net_output + 1))
-        # yield [images_array, label_array], y_fake
-
-
-def load_batch(batch_size, classes, n_classes, train_dir):
-    random.shuffle(classes)
-    picked_classes = classes[:n_classes]
-    # load each image in those classes
-    imgs = []
-    for i, c in enumerate(picked_classes):
-        images_in_c = os.listdir(train_dir + "/" + c)
-        # images_in_c = zip(images_in_c, [i]*len(images_in_c), [c]*len(images_in_c))
-        for image_in_c in images_in_c:
-            imgs += [(image_in_c, i, c)]
-    # randomize the image list
-    random.shuffle(imgs)
-    # pick the first batch_size (if enough)
-    batch_size_ = min(batch_size, len(imgs))
-    imgs = imgs[:batch_size_]
-    images_array = []
-    label_array = []
-    # load the images
-    print("Opening the images")
-    for im, index, dir in imgs:
-        image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
-        label = index
-        images_array.append(image)
-        label_array.append(label)
-    images_array = np.array(images_array)
-    label_array = np.array(label_array)
-    return images_array, label_array
 
 
 def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
@@ -634,11 +477,8 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
 # for k in sorted(index.keys()):
 #    print(k, index[k])
 # custom_generator,_ ,_  = custom_generator_from_keras("partition", 64, net_output = int(32e3))
-# model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
-# custom_generator = landmark_triplet_generator("/mnt/m2/dataset/", model=model)
-# custom_generator = holidays_triplet_generator("holidays_small_", model=model)
 
-import time
+# custom_generator = holidays_triplet_generator("holidays_small_", model=model)
 
 
 def show_triplet(triplet):
@@ -651,11 +491,16 @@ def show_triplet(triplet):
     time.sleep(6)
 
 
-import matplotlib.pyplot as plt
 
-# t0 = 0.
-# i = 0
+# model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
+# generator = LandmarkTripletGenerator("/mnt/m2/dataset/", model=model)
+# custom_generator = generator.generator()
+#
+# show_triplets = True
 # for el in custom_generator:
-#     print("New step")
-# for t in el:
-#    show_triplet(t)
+#     if show_triplets:
+#         x = el[0]
+#         a, p, n = x
+#         print("Number of triplets: ", a.shape[0])
+#         for i in range(a.shape[0]):
+#             show_triplet([a[i], p[i], n[i]])
