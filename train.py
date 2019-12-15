@@ -85,7 +85,7 @@ vgg_netvlad.summary()
 if train:
     # train session
 
-    lr = 0.00005
+    lr = 0.00001
     opt = Adam(lr=lr)  # choose optimiser. RMS is good too!
 
     vgg_netvlad.compile(optimizer=opt)
@@ -105,7 +105,7 @@ if train:
     test_generator = my_utils.holidays_triplet_generator("holidays_small_", model=my_model.get_netvlad_extractor(),
                                                          netbatch_size=minibatch_size)
 
-    vgg_netvlad.load_weights("model_e63_trained_pca.h5")
+    vgg_netvlad.load_weights("model_e110_trained_pca.h5")
 
     pretraining = False
     if pretraining:
@@ -126,7 +126,7 @@ if train:
     not_improving_counter = 0
     patience = 20
 
-    lr = 0.00005
+    lr = 0.00001
     K.set_value(vgg_netvlad.optimizer.lr, lr)
 
     for e in range(epochs):
@@ -160,9 +160,9 @@ if train:
         val_losses.append(val_loss)
 
         if val_loss < min_val_loss:
-            model_name = "model_e{}_trained_pca.h5".format(e+64)
+            model_name = "model_e{}_trained_pca.h5".format(e+83)
             print("Val. loss improved from {}. Saving model to: {}".format(min_val_loss, model_name))
-            vgg_netvlad.save_weights(model_name)
+            vgg_netvlad.save(model_name)
             not_improving_counter = 0
         else:
             print("Val loss ({}) did not improved from {}".format(val_loss, min_val_loss))
