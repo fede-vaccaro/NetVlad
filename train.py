@@ -2,6 +2,7 @@
 import gc
 import time
 from math import ceil
+import h5py
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,7 +18,7 @@ import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
 from triplet_loss import TripletLossLayer
 from netvlad_model import NetVLADSiameseModel
-
+import scipy
 
 mining_batch_size = 2048
 minibatch_size = 24
@@ -38,7 +39,7 @@ print("Netvlad output shape: ", vgg_netvlad.output_shape)
 print("Feature extractor output shape: ", vgg.output_shape)
 
 train_kmeans = False
-train = True
+train = False
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
@@ -157,6 +158,50 @@ if train:
 
 print("Testing model")
 
+
+
+
+path = "weights/model_e219_1212_897.h5"
+vgg_netvlad.load_weights(path)
+
+pca_from_landmarks = False
+if pca_from_landmarks:
+    generator = my_utils.LandmarkTripletGenerator("/mnt/m2/dataset/", model=my_model.get_netvlad_extractor(), use_multiprocessing=False)
+    custom_generator = generator.generator()
+
+    a = []
+    p = []
+    n = []
+
+    for i in range(500):
+        x, _ = next(custom_generator)
+        a_, p_, n_ = vgg_netvlad.predict(x)
+        a += [a_]
+        p += [p_]
+        n += [n_]
+        print(i)
+
+    generator.loader.stop_loading()
+
+    a = np.vstack((d for d in a)).astype('float32')
+    p = np.vstack((d for d in n)).astype('float32')
+    n = np.vstack((d for d in n)).astype('float32')
+
+    descs = np.vstack((a,p,n))
+    print(descs.shape)
+    del a, p, n
+
+    print("Computing PCA")
+    pca = PCA(512)
+    pca.fit(descs)
+    del descs
+
+    pca_dataset = h5py.File("pca.h5", 'w')
+    pca_dataset.create_dataset('components', data=pca.components_)
+    pca_dataset.create_dataset('mean', data=pca.mean_)
+    pca_dataset.close()
+
+
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 
@@ -166,7 +211,7 @@ query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] ==
 # check that everything is fine - expected output: "tot images = 1491, query images = 500"
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
-img_dict = hth.create_image_dict(hth.get_imlist('holidays_small'))
+img_dict = hth.create_image_dict(hth.get_imlist('holidays_small/'), rotate=False)
 img_dict.keys()
 
 img_tensor = [img_dict[key] for key in img_dict]
@@ -174,8 +219,20 @@ img_tensor = np.array(img_tensor)
 
 all_feats = vgg_netvlad.predict(img_tensor)
 
-print("Computing PCA")
-all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
+if pca_from_landmarks:
+    all_feats = pca.transform(all_feats)
+else:
+    pca = PCA(512)
+    dataset = h5py.File("pca.h5", 'r')
+    components = dataset['components'][:]
+    mean = dataset['mean'][:]
+    pca.components_ = components
+    pca.mean_ = mean
+
+    all_feats = pca.transform(all_feats)
+
+    # all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
+
 all_feats_sign = np.sign(all_feats)
 all_feats = np.power(np.abs(all_feats), 0.5)
 all_feats = np.multiply(all_feats, all_feats_sign)

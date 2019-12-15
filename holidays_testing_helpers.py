@@ -1,12 +1,12 @@
 import math
 import os
-
+from PIL import Image
 import PIL
 import matplotlib.pyplot as plt
 import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
-
+import yaml
 from netvlad_model import input_shape
 
 
@@ -21,14 +21,25 @@ def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
 
-def create_image_dict(img_list, input_shape=input_shape, preprocess_input=preprocess_input):
+def create_image_dict(img_list, input_shape=input_shape, preprocess_input=preprocess_input, rotate=False):
     # input_shape = (224, 224, 3)
     tensor = {}
+
+    rotated = open('holidays-rotate.yaml', 'r')
+    rotated_imgs = dict(yaml.safe_load(rotated))
+    rotated.close()
+
     for path in img_list:
         img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
+        img_key = path.strip('holidays_small/')
+
+        if img_key in list(rotated_imgs.keys()) and rotate:
+            degrees = rotated_imgs[img_key]
+            degrees = int(degrees)
+            img = img.rotate(-degrees)
+
         img = image.img_to_array(img)
         img = preprocess_input(img)
-        img_key = path.strip('holidays_small/')
         tensor[img_key] = img
     # tensor = np.array(tensor)
     return tensor

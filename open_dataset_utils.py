@@ -6,13 +6,14 @@ import random
 import threading
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
-from keras.applications.vgg16 import preprocess_input, VGG16
+from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
-import matplotlib.pyplot as plt
+
 from netvlad_model import input_shape
 
 
@@ -208,7 +209,7 @@ class Loader(threading.Thread):
 
         self.keep_loading = True
 
-        self.q = queue.Queue(4)
+        self.q = queue.Queue(2)
         super(Loader, self).__init__()
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
@@ -238,8 +239,10 @@ class Loader(threading.Thread):
                 label_array.append(label)
 
             # print("Images loaded")
-            self.q.put((np.array(images_array), np.array(label_array)))
-            self.q.task_done()
+            if self.keep_loading:
+                self.q.put((np.array(images_array), np.array(label_array)))
+
+            # self.q.task_done()
             # print("Object enqueued: ", (self.q.qsize()))
             gc.collect()
             # return images_array, label_array
@@ -249,7 +252,10 @@ class Loader(threading.Thread):
 
     def run(self) -> None:
         while self.keep_loading:
-            self.load_batch(self.batch_size, self.classes, self.n_classes, self.train_dir)
+            self.load_batch_()
+
+    def load_batch_(self):
+        self.load_batch(self.batch_size, self.classes, self.n_classes, self.train_dir)
 
     def stop_loading(self):
         self.keep_loading = False
@@ -257,14 +263,16 @@ class Loader(threading.Thread):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None):
+    def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True):
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 4
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
-        self.loader.start()
+        if use_multiprocessing:
+            self.loader.start()
 
+        self.use_multiprocessing = use_multiprocessing
         self.minibatch_size = minibatch_size
         self.model = model
 
@@ -276,7 +284,8 @@ class LandmarkTripletGenerator():
             # images_array, label_array = load_batch(batch_size, classes, n_classes, train_dir)
             # if loader.q.empty():
             #   loader.q.join()
-
+            if not self.use_multiprocessing:
+                self.loader.load_batch_()
             images_array, label_array = self.loader.q.get()
 
             print("Computing descriptors (consumer thread)")
@@ -346,7 +355,7 @@ class LandmarkTripletGenerator():
 
             # select just K different classes
             K_classes = 256
-
+            K_classes = min(K_classes, len(class_set))
             im_triplets = im_triplets[:K_classes]
 
             pages = math.ceil(K_classes / self.minibatch_size)
@@ -489,8 +498,6 @@ def show_triplet(triplet):
 
     plt.show()
     time.sleep(6)
-
-
 
 # model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
 # generator = LandmarkTripletGenerator("/mnt/m2/dataset/", model=model)

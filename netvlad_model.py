@@ -9,8 +9,9 @@ from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-input_shape = (224, 224, 3)
-# input_shape = (336, 336, 3)
+# input_shape = (224, 224, 3)
+input_shape = (336, 336, 3)
+# input_shape = (504, 504, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -23,7 +24,7 @@ class NetVLADSiameseModel:
 
         # set layers untrainable
         for layer in model.layers:
-            layer.trainable = False
+            layer.trainable = True
             # print(layer, layer.trainable)
 
         model.get_layer('block4_conv1').trainable = True
