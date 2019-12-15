@@ -1,8 +1,8 @@
 import numpy as np
 import vis.utils.utils
 from keras import activations
-from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda
+from keras.applications import VGG16
+from keras.layers import Input, Reshape, concatenate, MaxPool2D
 from keras.models import Model
 
 from loupe_keras import NetVLAD
@@ -23,7 +23,7 @@ class NetVLADSiameseModel:
 
         # set layers untrainable
         for layer in model.layers:
-            layer.trainable = False
+            layer.trainable = True
             # print(layer, layer.trainable)
 
         model.get_layer('block4_conv1').trainable = True
@@ -86,10 +86,6 @@ class NetVLADSiameseModel:
     def build_netvladmodel(self, kmeans=None):
         self.images_input = Input(shape=input_shape)
 
-        self.anchor = Input(shape=input_shape)
-        self.positive = Input(shape=input_shape)
-        self.negative = Input(shape=input_shape)
-
         output_shape = self.base_model.output_shape
         n_filters = 512
 
@@ -110,25 +106,28 @@ class NetVLADSiameseModel:
         netvlad = netvlad(l2normalization)
 
         netvlad_base = Model(self.base_model.input, netvlad)
-        self.netvlad_base = netvlad_base
-        # %%
-        netvlad_a = netvlad_base([self.anchor])
-        netvlad_p = netvlad_base([self.positive])
-        netvlad_n = netvlad_base([self.negative])
-
-        # embedding_output = netvlad(reshape(embedding(vgg.output)))
-        siamese_output = concatenate(
-            [netvlad_a, netvlad_p, netvlad_n]
-        )
-
-        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative],
-                            outputs=[netvlad_a, netvlad_p, netvlad_n])
 
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
 
-        self.vgg_netvlad = vgg_netvlad
-        return self.vgg_netvlad
+        self.netvlad_base = netvlad_base
+        return netvlad_base
+
+    def build_siamese_network(self, netvlad_base):
+        self.netvlad_base = netvlad_base
+
+        self.anchor = Input(shape=input_shape)
+        self.positive = Input(shape=input_shape)
+        self.negative = Input(shape=input_shape)
+
+        netvlad_a = netvlad_base([self.anchor])
+        netvlad_p = netvlad_base([self.positive])
+        netvlad_n = netvlad_base([self.negative])
+
+        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative],
+                            outputs=[netvlad_a, netvlad_p, netvlad_n])
+        return vgg_netvlad
+
 
     def set_netvlad_weights(self, kmeans):
         # netvlad_ = self.vgg_netvlad.get_layer('net_vlad_1')
@@ -188,7 +187,6 @@ class NetVLADModelRetinaNet(NetVLADModel):
         self.layer_name = layer_name
 
     """
-
 
 # class NetVladResnet(NetVLADModel):
 #     def __init__(self, layer_name='bn5c_branch2b'):

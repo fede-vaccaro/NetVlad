@@ -260,7 +260,7 @@ class LandmarkTripletGenerator():
     def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 4
+        n_classes = mining_batch_size // 3
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         self.loader.start()
@@ -347,7 +347,7 @@ class LandmarkTripletGenerator():
             # select just K different classes
             K_classes = 256
 
-            im_triplets = im_triplets[:K_classes]
+            im_triplets = im_triplets[:min(K_classes, len(im_triplets))]
 
             pages = math.ceil(K_classes / self.minibatch_size)
             for page in range(pages):
