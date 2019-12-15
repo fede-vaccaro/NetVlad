@@ -347,7 +347,7 @@ class LandmarkTripletGenerator():
             # select just K different classes
             K_classes = 256
 
-            im_triplets = im_triplets[:min(K_classes, len(im_triplets))]
+            im_triplets = im_triplets[:min(K_classes, len(class_set))]
 
             pages = math.ceil(K_classes / self.minibatch_size)
             for page in range(pages):
