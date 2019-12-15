@@ -11,11 +11,12 @@ from keras.optimizers import Adam
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
-
 import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
 from netvlad_model import NetVLADSiameseModel
 from triplet_loss import TripletLossLayer
+
+import h5py
 
 mining_batch_size = 2048
 minibatch_size = 24
@@ -35,7 +36,7 @@ print("Netvlad output shape: ", vgg_netvlad.output_shape)
 print("Feature extractor output shape: ", vgg.output_shape)
 
 train_kmeans = False
-train = False
+train = True
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
@@ -61,7 +62,7 @@ if train_kmeans:
 
 vgg_netvlad = my_model.build_siamese_network(vgg_netvlad)
 
-vgg_netvlad.load_weights("model_e204_1212.h5")
+vgg_netvlad.load_weights("model_e219_1212_897.h5")
 netvlad_base = my_model.get_netvlad_extractor()
 
 for layer in netvlad_base.layers:
@@ -71,10 +72,18 @@ out = netvlad_base.get_layer('net_vlad_1').output
 out = layers.Dropout(0.2)(out)
 
 pca_layer = layers.Dense(512, activation=None)
-
 out = pca_layer(out)
-out = layers.Lambda(lambda x: K.l2_normalize(x, 0))(out)
+out = layers.Lambda(lambda x_: K.l2_normalize(x_, 0))(out)
 netvlad_base = Model(my_model.base_model.input, out)
+
+pca_files = h5py.File('pca.h5', 'r')
+components_ = pca_files['components'][:]
+mean_ = pca_files['mean'][:]
+mean_ = -np.dot(mean_, components_.T)
+print(mean_.shape)
+pca_layer.set_weights([components_.T, mean_])
+pca_files.close()
+
 
 netvlad_base.summary()
 
@@ -105,7 +114,6 @@ if train:
     test_generator = my_utils.holidays_triplet_generator("holidays_small_", model=my_model.get_netvlad_extractor(),
                                                          netbatch_size=minibatch_size)
 
-    vgg_netvlad.load_weights("model_e110_trained_pca.h5")
 
     pretraining = False
     if pretraining:
@@ -160,7 +168,7 @@ if train:
         val_losses.append(val_loss)
 
         if val_loss < min_val_loss:
-            model_name = "model_e{}_trained_pca.h5".format(e+83)
+            model_name = "model_e{}_trained_pca.h5".format(e)
             print("Val. loss improved from {}. Saving model to: {}".format(min_val_loss, model_name))
             vgg_netvlad.save(model_name)
             not_improving_counter = 0
@@ -193,7 +201,7 @@ if train:
 
 print("Testing model")
 
-vgg_netvlad.load_weights("model.h5")
+# vgg_netvlad.load_weights("model.h5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 

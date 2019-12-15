@@ -208,7 +208,7 @@ class Loader(threading.Thread):
 
         self.keep_loading = True
 
-        self.q = queue.Queue(4)
+        self.q = queue.Queue(1)
         super(Loader, self).__init__()
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
@@ -346,8 +346,8 @@ class LandmarkTripletGenerator():
 
             # select just K different classes
             K_classes = 256
-
-            im_triplets = im_triplets[:min(K_classes, len(class_set))]
+            K_classes = min(K_classes, len(class_set))
+            im_triplets = im_triplets[:K_classes]
 
             pages = math.ceil(K_classes / self.minibatch_size)
             for page in range(pages):
