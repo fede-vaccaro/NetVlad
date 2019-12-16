@@ -1,11 +1,11 @@
+import keras.backend as K
 import tensorflow as tf
 from keras.engine import Layer
-import keras.backend as K
+from tensorflow.python.framework import dtypes
 ## required for semi-hard triplet loss:
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.framework import dtypes
-import tensorflow as tf
+
 
 class Transpose(Layer):
     def __init__(self, **kwargs):
@@ -32,6 +32,18 @@ def triplet_loss(y_true, y_pred):
     return loss
 
 
+
+
+def contrastive_loss(y_true, y_pred):
+    '''Contrastive loss from Hadsell-et-al.'06
+    http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
+    '''
+    margin = 0.75
+    square_pred = y_pred
+    margin_square = K.square(K.maximum(margin - y_pred, 0.0))
+    return K.mean(y_true * square_pred + (1 - y_true) * margin_square)
+
+
 class TripletLossLayer(Layer):
     def __init__(self, alpha, **kwargs):
         self.alpha = alpha
@@ -56,6 +68,7 @@ class L2NormLayer(Layer):
     def call(self, inputs):
         normalized = K.l2_normalize(inputs, axis=1)
         return normalized
+
 
 def pairwise_distance(feature, squared=False):
     """Computes the pairwise distance matrix with numerical stability.
@@ -100,6 +113,7 @@ def pairwise_distance(feature, squared=False):
     pairwise_distances = math_ops.multiply(pairwise_distances, mask_offdiagonals)
     return pairwise_distances
 
+
 def masked_maximum(data, mask, dim=1):
     """Computes the axis wise maximum over chosen elements.
 
@@ -117,6 +131,7 @@ def masked_maximum(data, mask, dim=1):
         math_ops.multiply(data - axis_minimums, mask), dim,
         keepdims=True) + axis_minimums
     return masked_maximums
+
 
 def masked_minimum(data, mask, dim=1):
     """Computes the axis wise minimum over chosen elements.
@@ -136,7 +151,9 @@ def masked_minimum(data, mask, dim=1):
         keepdims=True) + axis_maximums
     return masked_minimums
 
+
 N_LABELS = 500
+
 
 def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
     del y_true
@@ -159,17 +176,17 @@ def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
     # Build pairwise binary adjacency matrix.
     # adjacency = math_ops.equal(labels, array_ops.transpose(labels))
     adjacency = tf.matmul(labels, tf.transpose(labels))
-    #adjacency = tf.cast(adjacency, tf.dtypes.bool)
+    # adjacency = tf.cast(adjacency, tf.dtypes.bool)
 
-    #adjacency_not = pairwise_distance(tf.cast(labels, 'float32'))
-    #adjacency_not = tf.cast(adjacency_not, 'bool')
-    #adjacency = tf.logical_not(adjacency_not)
+    # adjacency_not = pairwise_distance(tf.cast(labels, 'float32'))
+    # adjacency_not = tf.cast(adjacency_not, 'bool')
+    # adjacency = tf.logical_not(adjacency_not)
 
     # Invert so we can select negatives only.
     adjacency_not = math_ops.logical_not(adjacency)
 
     # global batch_size
-    #batch_size = array_ops.size(labels)  # was 'array_ops.size(labels)'
+    # batch_size = array_ops.size(labels)  # was 'array_ops.size(labels)'
     batch_size = tf.shape(labels)[0]
     # Compute the mask.
     pdist_matrix_tile = array_ops.tile(pdist_matrix, [batch_size, 1])
@@ -218,8 +235,6 @@ def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
 
     ### Code from Tensorflow function semi-hard triplet loss ENDS here.
     return semi_hard_triplet_loss_distance
-
-
 
 
 def triplet_loss_adapted_from_tf(y_true, y_pred):
@@ -295,4 +310,3 @@ def triplet_loss_adapted_from_tf(y_true, y_pred):
 
     ### Code from Tensorflow function semi-hard triplet loss ENDS here.
     return semi_hard_triplet_loss_distance
-

@@ -8,7 +8,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from keras.applications.vgg16 import preprocess_input
+from keras.applications.vgg16 import preprocess_input, VGG16
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
@@ -27,8 +27,8 @@ def get_txtlist(path):
 
 def open_img(path, input_shape=input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
-    # img = (image.img_to_array(img) - 127.5) / 127.5
-    img = preprocess_input(image.img_to_array(img))
+    img = (image.img_to_array(img) - 127.5) / 127.5
+    # img = preprocess_input(image.img_to_array(img))
     img_id = path.split('/')[-1]
 
     return img, img_id
@@ -209,7 +209,7 @@ class Loader(threading.Thread):
 
         self.keep_loading = True
 
-        self.q = queue.Queue(2)
+        self.q = queue.Queue(1)
         super(Loader, self).__init__()
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
@@ -246,7 +246,8 @@ class Loader(threading.Thread):
             # print("Object enqueued: ", (self.q.qsize()))
             gc.collect()
             # return images_array, label_array
-
+        else:
+            self.q.join()
     # self.images_array = np.array(images_array)
     # self.label_array = np.array(label_array)
 
@@ -262,11 +263,11 @@ class Loader(threading.Thread):
         self.q.queue.clear()
 
 
-class LandmarkTripletGenerator():
+class LandmarkPairsGenerator:
     def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 4
+        n_classes = mining_batch_size // 3
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         if use_multiprocessing:
@@ -329,7 +330,7 @@ class LandmarkTripletGenerator():
                             # print("Triplete Loss (a=0.1): ", 0.1 + distances[i][j_pos] ** 2. - distances[i][j_neg] ** 2.)
                             i, j, k = triplet
                             t_ = (images_array[i], images_array[j], images_array[k])
-                            show_triplet(t_)
+                            show_pair(t_)
                         break
 
             # select triplets per classes
@@ -347,26 +348,40 @@ class LandmarkTripletGenerator():
             triplets = selected_triplets
             print("Different classes: {}".format(len(class_set)))
 
-            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
-            random.shuffle(im_triplets)
-
-            del images_array, indices, distances, feats
-            gc.collect()
-
             # select just K different classes
             K_classes = 256
             K_classes = min(K_classes, len(class_set))
-            im_triplets = im_triplets[:K_classes]
+            triplets = selected_triplets[:K_classes]
 
+            # convert triplets to alternating positive - negative pairs
+            labels = np.zeros((K_classes * 2,))
+            pairs = []
+            for idx in range(len(triplets)):
+                i, j, k = triplets[idx]
+                pair_positive = (i, j)
+                pair_negative = (i, k)
+                labels[idx * 2] = 1
+                labels[idx * 2 + 1] = 0
+                pairs += [pair_positive, pair_negative]
+
+            im_pairs = [[images_array[i], images_array[j]] for i, j in pairs]
+            # random.shuffle(im_pairs)
+
+            del images_array, indices, distances, feats
+            self.loader.q.task_done()
+            gc.collect()
+
+            K_classes *= 2
             pages = math.ceil(K_classes / self.minibatch_size)
             for page in range(pages):
-                triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+                pairs_out = im_pairs[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+                labels_out = labels[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
 
-                anchors = np.array([t[0] for t in triplets_out])
-                positives = np.array([t[1] for t in triplets_out])
-                negatives = np.array([t[2] for t in triplets_out])
+                anchors = np.array([t[0] for t in pairs_out])
+                queries = np.array([t[1] for t in pairs_out])
+                # negatives = np.array([t[2] for t in pairs_out])
 
-                yield [anchors, positives, negatives], None  # , [y_fake]*3
+                yield [anchors, queries], labels_out  # , [y_fake]*3
 
 
 def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
@@ -392,7 +407,7 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
     label_array = []
 
     # load the images
-    print("Opening the images")
+    print("Opening the images (testing)")
     for im, index, dir in imgs:
         image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
         label = index
@@ -450,31 +465,42 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
                 #    plt.show()
                 i, j, k = triplet
                 t_ = (images_array[i], images_array[j], images_array[k])
-                show_triplet(t_)
+                show_pair(t_)
                 # time.sleep(6)
 
-        im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
-        random.shuffle(im_triplets)
         DIM = len(images_array)
 
         # del images_array, indices, distances, feats
         # gc.collect()
 
         # print(len(im_triplets))
-        im_triplets = im_triplets[:DIM]
+        # im_triplets = im_triplets[:DIM]
 
+        # convert triplets to alternating positive - negative pairs
+        labels = np.zeros((DIM * 2,))
+        pairs = []
+        for idx in range(len(triplets)):
+            i, j, k = triplets[idx]
+            pair_positive = (i, j)
+            pair_negative = (i, k)
+            labels[idx * 2] = 1
+            labels[idx * 2 + 1] = 0
+            pairs += [pair_positive, pair_negative]
+
+        im_pairs = [[images_array[i], images_array[j]] for i, j in pairs]
+
+        DIM *= 2
         pages = math.ceil(DIM / netbatch_size)
-
-        keep_epoch = 4
+        keep_epoch = 1
         for e in range(keep_epoch):
             for page in range(pages):
-                triplets_out = im_triplets[page * netbatch_size: min((page + 1) * netbatch_size, DIM)]
+                pairs_out = im_pairs[page * netbatch_size: min((page + 1) * netbatch_size, DIM)]
+                labels_out = labels[page * netbatch_size: min((page + 1) * netbatch_size, DIM)]
 
-                anchors = np.array([t[0] for t in triplets_out])
-                positives = np.array([t[1] for t in triplets_out])
-                negatives = np.array([t[2] for t in triplets_out])
+                anchors = np.array([t[0] for t in pairs_out])
+                queries = np.array([t[1] for t in pairs_out])
 
-                yield [anchors, positives, negatives], None  # , [y_fake]*3
+                yield [anchors, queries], labels_out  # , [y_fake]*3
 
         # y_fake = np.zeros((len(images_array), net_output + 1))
         # yield [images_array, label_array], y_fake
@@ -490,24 +516,43 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
 # custom_generator = holidays_triplet_generator("holidays_small_", model=model)
 
 
-def show_triplet(triplet):
+def show_pair(pair):
     fig = plt.figure(figsize=(10, 10))
-    for i, t in enumerate(triplet):
-        fig.add_subplot(1, 3, i + 1)
+    for i, t in enumerate(pair):
+        fig.add_subplot(1, 2, i + 1)
         plt.imshow(t * 0.5 + 0.5)
 
     plt.show()
     time.sleep(6)
 
-# model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
-# generator = LandmarkTripletGenerator("/mnt/m2/dataset/", model=model)
-# custom_generator = generator.generator()
-#
-# show_triplets = True
-# for el in custom_generator:
-#     if show_triplets:
-#         x = el[0]
-#         a, p, n = x
-#         print("Number of triplets: ", a.shape[0])
-#         for i in range(a.shape[0]):
-#             show_triplet([a[i], p[i], n[i]])
+
+def main():
+    model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
+    # generator = LandmarkPairsGenerator("/mnt/m2/dataset/", model=model)
+    # custom_generator = generator.generator()
+
+    custom_generator = holidays_triplet_generator("holidays_small_", model=model)
+
+    show_triplets = False
+    i = 0
+    y_count = 0
+    for el in custom_generator:
+        i+=1
+        x, y = el
+        y_count += y.shape[0]
+        a, b = x
+
+        if show_triplets:
+            print("Number of triplets: ", a.shape[0])
+            for i in range(a.shape[0]):
+                if int(y[i]) == 1:
+                    print("Positive pair")
+                else:
+                    print("Negative pair")
+                show_pair([a[i], b[i]])
+        else:
+            print(i, y_count)
+
+
+if __name__ == '__main__':
+    main()

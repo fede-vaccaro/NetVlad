@@ -1,8 +1,9 @@
 import numpy as np
 import vis.utils.utils
 from keras import activations
-from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda
+from keras import backend as K
+from keras.applications import VGG16
+from keras.layers import Input, Reshape, concatenate, MaxPool2D, Lambda
 from keras.models import Model
 
 from loupe_keras import NetVLAD
@@ -11,10 +12,22 @@ from triplet_loss import L2NormLayer
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
 # input_shape = (224, 224, 3)
 input_shape = (336, 336, 3)
+
+
 # input_shape = (504, 504, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
+
+def euclidean_distance_squared(vects):
+    x, y = vects
+    sum_square = K.sum(K.square(x - y), axis=1, keepdims=True)
+    return K.maximum(sum_square, K.epsilon())
+
+
+def eucl_dist_output_shape(shapes):
+    shape1, shape2 = shapes
+    return (shape1[0], 1)
 
 
 class NetVLADSiameseModel:
@@ -88,8 +101,7 @@ class NetVLADSiameseModel:
         self.images_input = Input(shape=input_shape)
 
         self.anchor = Input(shape=input_shape)
-        self.positive = Input(shape=input_shape)
-        self.negative = Input(shape=input_shape)
+        self.query = Input(shape=input_shape)
 
         output_shape = self.base_model.output_shape
         n_filters = 512
@@ -114,16 +126,13 @@ class NetVLADSiameseModel:
         self.netvlad_base = netvlad_base
         # %%
         netvlad_a = netvlad_base([self.anchor])
-        netvlad_p = netvlad_base([self.positive])
-        netvlad_n = netvlad_base([self.negative])
+        netvlad_b = netvlad_base([self.query])
 
-        # embedding_output = netvlad(reshape(embedding(vgg.output)))
-        siamese_output = concatenate(
-            [netvlad_a, netvlad_p, netvlad_n]
-        )
+        distance = Lambda(euclidean_distance_squared,
+                          output_shape=eucl_dist_output_shape)([netvlad_a, netvlad_b])
 
-        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative],
-                            outputs=[netvlad_a, netvlad_p, netvlad_n])
+        vgg_netvlad = Model(inputs=[self.anchor, self.query],
+                            outputs=distance)
 
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
@@ -189,7 +198,6 @@ class NetVLADModelRetinaNet(NetVLADModel):
         self.layer_name = layer_name
 
     """
-
 
 # class NetVladResnet(NetVLADModel):
 #     def __init__(self, layer_name='bn5c_branch2b'):

@@ -6,7 +6,7 @@ import h5py
 
 import matplotlib.pyplot as plt
 import numpy as np
-from keras import Model
+from keras import Model, layers
 from keras import backend as K
 from keras.optimizers import Adam
 from sklearn.cluster import MiniBatchKMeans
@@ -16,13 +16,13 @@ from sklearn.preprocessing import normalize
 
 import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
-from triplet_loss import TripletLossLayer
+from triplet_loss import TripletLossLayer, contrastive_loss
 from netvlad_model import NetVLADSiameseModel
 import scipy
 
 mining_batch_size = 2048
 minibatch_size = 24
-epochs = 40
+epochs = 60
 
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
@@ -32,21 +32,21 @@ files = [mirflickr_path + k for k in list(index.keys())]
 my_model = NetVLADSiameseModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
-generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=256)
+generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=128)
 vgg_netvlad = my_model.build_netvladmodel()
 
 print("Netvlad output shape: ", vgg_netvlad.output_shape)
 print("Feature extractor output shape: ", vgg.output_shape)
 
-train_kmeans = False
-train = False
+train_kmeans = True
+train = True
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
     all_descs = vgg.predict_generator(generator=generator_nolabels, steps=30, verbose=1)
     print("All descs shape: ", all_descs.shape)
 
-    locals = np.vstack((m[np.random.randint(len(m), size=100)] for m in all_descs)).astype('float32')
+    locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in all_descs)).astype('float32')
 
     print("Sampling local features")
 
@@ -72,17 +72,14 @@ if train:
     lr = 0.00001
     opt = Adam(lr=lr)  # choose optimiser. RMS is good too!
 
-    vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
-    vgg_netvlad.compile(optimizer=opt)
+    vgg_netvlad.compile(optimizer=opt, loss=contrastive_loss)
 
-    steps_per_epoch = 50
-    steps_per_epoch_val = ceil(1491 / minibatch_size)
+    steps_per_epoch = 100
+    steps_per_epoch_val = ceil(1491 * 2 / minibatch_size)
 
-    filepath = "/mnt/sdb-seagate/weights/weights-netvlad-{epoch:02d}.hdf5"
-
-    landmark_generator = my_utils.LandmarkTripletGenerator(train_dir="/mnt/m2/dataset/",
-                                                           model=my_model.get_netvlad_extractor(),
-                                                           mining_batch_size=mining_batch_size, minibatch_size=minibatch_size)
+    landmark_generator = my_utils.LandmarkPairsGenerator(train_dir="/mnt/m2/dataset/",
+                                                         model=my_model.get_netvlad_extractor(),
+                                                         mining_batch_size=mining_batch_size, minibatch_size=minibatch_size)
 
     train_generator = landmark_generator.generator()
 
@@ -93,7 +90,7 @@ if train:
     val_losses = []
 
     not_improving_counter = 0
-    not_improving_thresh = 15
+    not_improving_patience = epochs + 1
     for e in range(epochs):
         t0 = time.time()
 
@@ -111,8 +108,8 @@ if train:
         val_loss_e = []
 
         for s in range(steps_per_epoch_val):
-            x_val, _ = next(test_generator)
-            val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+            x_val, y_val = next(test_generator)
+            val_loss_s = vgg_netvlad.evaluate(x_val, y_val, verbose=0)
             val_loss_e.append(val_loss_s)
 
         val_loss = np.array(val_loss_e).mean()
@@ -125,15 +122,15 @@ if train:
         val_losses.append(val_loss)
 
         if val_loss < min_val_loss:
-            model_name = "model_e{}_1212.h5".format(e)
+            model_name = "model_e{}_contr.h5".format(e)
             print("Val. loss improved from {}. Saving model to: {}".format(min_val_loss, model_name))
-            vgg_netvlad.save_weights(model_name)
+            vgg_netvlad.save(model_name)
             not_improving_counter = 0
         else:
             print("Val loss ({}) did not improved from {}".format(val_loss, min_val_loss))
             not_improving_counter += 1
             print("Val loss does not improve since {} epochs".format(not_improving_counter))
-            if not_improving_counter == not_improving_thresh:
+            if not_improving_counter == not_improving_patience:
                 lr *= 0.5
                 K.set_value(vgg_netvlad.optimizer.lr, lr)
                 print("Learning rate set to: {}".format(lr))
@@ -158,22 +155,19 @@ if train:
 
 print("Testing model")
 
-
-
-
-path = "weights/model_e219_1212_897.h5"
-vgg_netvlad.load_weights(path)
+# path = "weights/model_e219_1212_897.h5"
+# vgg_netvlad.load_weights(path)
 
 pca_from_landmarks = False
 if pca_from_landmarks:
-    generator = my_utils.LandmarkTripletGenerator("/mnt/m2/dataset/", model=my_model.get_netvlad_extractor(), use_multiprocessing=False)
+    generator = my_utils.LandmarkPairsGenerator("/mnt/m2/dataset/", model=my_model.get_netvlad_extractor(), use_multiprocessing=True)
     custom_generator = generator.generator()
 
     a = []
     p = []
     n = []
 
-    for i in range(500):
+    for i in range(1000):
         x, _ = next(custom_generator)
         a_, p_, n_ = vgg_netvlad.predict(x)
         a += [a_]
@@ -187,6 +181,13 @@ if pca_from_landmarks:
     p = np.vstack((d for d in n)).astype('float32')
     n = np.vstack((d for d in n)).astype('float32')
 
+    descs_dataset = h5py.File("descs_336.h5", 'w')
+    descs_dataset.create_dataset('a', data=a)
+    descs_dataset.create_dataset('p', data=p)
+    descs_dataset.create_dataset('n', data=n)
+    descs_dataset.close()
+
+
     descs = np.vstack((a,p,n))
     print(descs.shape)
     del a, p, n
@@ -196,9 +197,10 @@ if pca_from_landmarks:
     pca.fit(descs)
     del descs
 
-    pca_dataset = h5py.File("pca.h5", 'w')
+    pca_dataset = h5py.File("pca_336.h5", 'w')
     pca_dataset.create_dataset('components', data=pca.components_)
     pca_dataset.create_dataset('mean', data=pca.mean_)
+    pca_dataset.create_dataset('variance', data=pca.explained_variance_)
     pca_dataset.close()
 
 
@@ -222,16 +224,16 @@ all_feats = vgg_netvlad.predict(img_tensor)
 if pca_from_landmarks:
     all_feats = pca.transform(all_feats)
 else:
-    pca = PCA(512)
-    dataset = h5py.File("pca.h5", 'r')
-    components = dataset['components'][:]
-    mean = dataset['mean'][:]
-    pca.components_ = components
-    pca.mean_ = mean
+    # pca = PCA(512)
+    # dataset = h5py.File("pca.h5", 'r')
+    # components = dataset['components'][:]
+    # mean = dataset['mean'][:]
+    # pca.components_ = components
+    # pca.mean_ = mean
+    #
+    # all_feats = pca.transform(all_feats)
 
-    all_feats = pca.transform(all_feats)
-
-    # all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
+    all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
 
 all_feats_sign = np.sign(all_feats)
 all_feats = np.power(np.abs(all_feats), 0.5)
