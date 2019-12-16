@@ -18,15 +18,15 @@ import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
 from triplet_loss import TripletLossLayer
 from netvlad_model import NetVLADSiameseModel
+import paths
 import scipy
 
 mining_batch_size = 2048
 minibatch_size = 24
 epochs = 40
 
-index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
-mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
-files = [mirflickr_path + k for k in list(index.keys())]
+index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
+files = [paths.mirflickr_path + k for k in list(index.keys())]
 
 
 my_model = NetVLADSiameseModel()
@@ -63,8 +63,6 @@ if train_kmeans:
     del all_descs
     gc.collect()
 
-    vgg_netvlad.save_weights("kmeans_weights.h5")
-
 if train:
     vgg_netvlad.summary()
 
@@ -78,15 +76,14 @@ if train:
     steps_per_epoch = 50
     steps_per_epoch_val = ceil(1491 / minibatch_size)
 
-    filepath = "/mnt/sdb-seagate/weights/weights-netvlad-{epoch:02d}.hdf5"
 
-    landmark_generator = my_utils.LandmarkTripletGenerator(train_dir="/mnt/m2/dataset/",
+    landmark_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                            model=my_model.get_netvlad_extractor(),
                                                            mining_batch_size=mining_batch_size, minibatch_size=minibatch_size)
 
     train_generator = landmark_generator.generator()
 
-    test_generator = my_utils.holidays_triplet_generator("holidays_small_", model=my_model.get_netvlad_extractor(),
+    test_generator = my_utils.holidays_triplet_generator(paths.holidays_small_labeled_path, model=my_model.get_netvlad_extractor(),
                                                          netbatch_size=minibatch_size)
 
     losses = []
@@ -161,12 +158,12 @@ print("Testing model")
 
 
 
-path = "weights/model_e219_1212_897.h5"
+path = "model_e219_1212_897.h5"
 vgg_netvlad.load_weights(path)
 
-pca_from_landmarks = False
+pca_from_landmarks = True
 if pca_from_landmarks:
-    generator = my_utils.LandmarkTripletGenerator("/mnt/m2/dataset/", model=my_model.get_netvlad_extractor(), use_multiprocessing=False)
+    generator = my_utils.LandmarkTripletGenerator(paths.landmarks_path, model=my_model.get_netvlad_extractor(), use_multiprocessing=False)
     custom_generator = generator.generator()
 
     a = []
@@ -211,7 +208,7 @@ query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] ==
 # check that everything is fine - expected output: "tot images = 1491, query images = 500"
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
-img_dict = hth.create_image_dict(hth.get_imlist('holidays_small/'), rotate=False)
+img_dict = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), rotate=False)
 img_dict.keys()
 
 img_tensor = [img_dict[key] for key in img_dict]
