@@ -22,7 +22,7 @@ import scipy
 
 mining_batch_size = 2048
 minibatch_size = 24
-epochs = 60
+epochs = 10
 
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
@@ -69,7 +69,7 @@ if train:
     vgg_netvlad.summary()
 
     # train session
-    lr = 0.00001
+    lr = 0.000001
     opt = Adam(lr=lr)  # choose optimiser. RMS is good too!
 
     vgg_netvlad.compile(optimizer=opt, loss=contrastive_loss)
@@ -81,7 +81,8 @@ if train:
                                                          model=my_model.get_netvlad_extractor(),
                                                          mining_batch_size=mining_batch_size, minibatch_size=minibatch_size)
 
-    train_generator = landmark_generator.generator()
+    # train_generator = landmark_generator.generator()
+    train_generator = landmark_generator.generator_semi_hard()
 
     test_generator = my_utils.holidays_triplet_generator("holidays_small_", model=my_model.get_netvlad_extractor(),
                                                          netbatch_size=minibatch_size)
@@ -204,6 +205,7 @@ if pca_from_landmarks:
     pca_dataset.close()
 
 
+vgg_netvlad.load_weights("model.h5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 

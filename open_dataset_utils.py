@@ -27,8 +27,8 @@ def get_txtlist(path):
 
 def open_img(path, input_shape=input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
-    img = (image.img_to_array(img) - 127.5) / 127.5
-    # img = preprocess_input(image.img_to_array(img))
+    # img = (image.img_to_array(img) - 127.5) / 127.5
+    img = preprocess_input(image.img_to_array(img))
     img_id = path.split('/')[-1]
 
     return img, img_id
@@ -248,6 +248,7 @@ class Loader(threading.Thread):
             # return images_array, label_array
         else:
             self.q.join()
+
     # self.images_array = np.array(images_array)
     # self.label_array = np.array(label_array)
 
@@ -382,6 +383,91 @@ class LandmarkPairsGenerator:
                 # negatives = np.array([t[2] for t in pairs_out])
 
                 yield [anchors, queries], labels_out  # , [y_fake]*3
+
+    def generator_semi_hard(self):
+        while True:
+            print("New iteration")
+            # pick n_classes from the dirs
+
+            # images_array, label_array = load_batch(batch_size, classes, n_classes, train_dir)
+            # if loader.q.empty():
+            #   loader.q.join()
+            if not self.use_multiprocessing:
+                self.loader.load_batch_()
+            images_array, label_array = self.loader.q.get()
+
+            print("Computing descriptors (consumer thread)")
+            feats = self.model.predict(images_array)
+            feats = normalize(feats)
+
+            nbrs = NearestNeighbors(n_neighbors=len(images_array), metric='l2').fit(feats)
+            distances, indices = nbrs.kneighbors(feats)
+
+            pairs = []
+
+            # find pairs:
+            print("Finding pairs")
+            for i, row in enumerate(indices):
+                anchor_label = label_array[i]
+
+                j_neg = -1
+                j_pos = -1
+
+                for j, col in enumerate(row):
+                    # find first negative
+                    r_label = label_array[col]
+                    if (j_pos == -1) and (j_neg == -1) and (
+                            r_label == anchor_label):  # scorre finchè non trova il primo negativo
+                        continue
+                    elif (j_neg == -1) and (r_label != anchor_label):
+                        j_neg = j
+
+                        # append hard-negative pair
+                        pairs.append((row[0], row[j_neg], 0, anchor_label))
+
+                        # append semi-hard positive pairs
+                        if j_neg > 1:
+                            j_pos = j_neg - 1
+                            k = j_pos
+                            while k > 0:
+                                pairs.append((row[0], row[k], 1, anchor_label))
+                                k -= 1
+                            break
+
+
+            # select at most one anchor/query per class
+            query_labels = {}
+            selected_pairs = []
+            for pair in pairs:
+                a, q, sign, label = pair
+                if label in list(query_labels.keys()):
+                    if query_labels[label] == a:
+                        selected_pairs += [pair]
+                else:
+                    query_labels[label] = a
+                    selected_pairs += [pair]
+
+            pairs = selected_pairs
+            random.shuffle(pairs)
+
+            im_pairs = [[images_array[i], images_array[j]] for i, j, _, _ in pairs]
+            labels = np.array([k for _, _, k, _ in pairs])
+
+            del images_array, indices, distances, feats
+            self.loader.q.task_done()
+            gc.collect()
+
+            K_classes = len(im_pairs)
+            print("Number of pairs: ", len(im_pairs))
+            pages = math.ceil(K_classes / self.minibatch_size)
+            for page in range(pages):
+                pairs_out = im_pairs[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+                labels_out = labels[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+
+                anchors = np.array([t[0] for t in pairs_out])
+                queries = np.array([t[1] for t in pairs_out])
+
+                yield [anchors, queries], labels_out
 
 
 def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
@@ -528,16 +614,16 @@ def show_pair(pair):
 
 def main():
     model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
-    # generator = LandmarkPairsGenerator("/mnt/m2/dataset/", model=model)
-    # custom_generator = generator.generator()
+    generator = LandmarkPairsGenerator("/mnt/m2/dataset/", model=model)
+    custom_generator = generator.generator_semi_hard()
 
-    custom_generator = holidays_triplet_generator("holidays_small_", model=model)
+    # custom_generator = holidays_triplet_generator("holidays_small_", model=model)
 
     show_triplets = False
     i = 0
     y_count = 0
     for el in custom_generator:
-        i+=1
+        i += 1
         x, y = el
         y_count += y.shape[0]
         a, b = x
