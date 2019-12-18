@@ -19,7 +19,7 @@ from triplet_loss import TripletLossLayer
 index, classes = my_utils.generate_index_mirflickr('mirflickr_annotations')
 
 batch_size = 2048
-epochs = 20
+epochs = 10
 
 mirflickr_path = "/mnt/sdb-seagate/datasets/mirflickr/"
 files = [mirflickr_path + k for k in list(index.keys())]
@@ -30,7 +30,7 @@ from netvlad_model import NetVLADSiameseModel, NetVladResnet  # , NetVLADModelRe
 my_model = NetVladResnet()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
-generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=256)
+generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=160)
 
 test_generator, samples_test, _ = my_utils.custom_generator_from_keras("holidays_small_", batch_size=200,
                                                                        net_output=my_model.netvlad_output,
@@ -58,7 +58,7 @@ if train_kmeans:
 
     import random
 
-    locals = np.vstack((m[np.random.randint(len(m), size=20)] for m in all_descs)).astype('float32')
+    locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in all_descs)).astype('float32')
 
     print("Sampling local features")
     # %%
@@ -73,7 +73,7 @@ if train_kmeans:
 
     n_clust = 64
     print("Fitting k-means")
-    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals[locals.shape[0] // 4:])
+    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals[locals.shape[0] // 2:])
 
     my_model.set_netvlad_weights(kmeans)
 
@@ -97,7 +97,7 @@ if train:
 
     # train session
     opt = Adam(lr=0.00001)  # choose optimiser. RMS is good too!
-
+    vgg_netvlad.load_weights("kmeans_weights.h5")
     vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
     vgg_netvlad.compile(optimizer=opt)
 
@@ -108,12 +108,12 @@ if train:
 
     landmark_generator = my_utils.LandmarkTripletGenerator(train_dir="/mnt/m2/dataset/",
                                                            model=my_model.get_netvlad_extractor(),
-                                                           batch_size=batch_size, net_batch_size=32)
+                                                           mining_batch_size=batch_size, minibatch_size=24)
 
     train_generator = landmark_generator.generator()
 
     test_generator = my_utils.holidays_triplet_generator("holidays_small_", model=my_model.get_netvlad_extractor(),
-                                                         netbatch_size=32)
+                                                         netbatch_size=24)
 
     losses = []
     val_losses = []
@@ -134,7 +134,7 @@ if train:
 
         val_loss_e = []
 
-        for s in range(ceil(1491 / 32)):
+        for s in range(ceil(1491 / 24)):
             x_val, _ = next(test_generator)
             val_loss_s = vgg_netvlad.predict_on_batch(x_val)
             val_loss_e.append(val_loss_s)
@@ -149,7 +149,7 @@ if train:
         val_losses.append(val_loss)
 
         if val_loss < min_val_loss:
-            model_name = "model_e{}.h5".format(e)
+            model_name = "model_e{}_resnet.h5".format(e)
             print("Val. loss improved from {}. Saving model to: {}".format(min_val_loss, model_name))
             vgg_netvlad.save_weights(model_name)
         else:
@@ -176,7 +176,7 @@ if train:
 # %%
 
 
-vgg_netvlad.load_weights("model_e26.h5")
+# vgg_netvlad.load_weights("model_e26.h5")
 vgg_netvlad = my_model.get_netvlad_extractor()
 vgg_netvlad.summary()
 result = vgg_netvlad.predict(images[:1])

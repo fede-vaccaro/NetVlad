@@ -9,8 +9,8 @@ from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-input_shape = (224, 224, 3)
-# input_shape = (336, 336, 3)
+# input_shape = (224, 224, 3)
+input_shape = (336, 336, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -178,16 +178,16 @@ class NetVLADSiameseModel:
         # out = channel_red(model.get_layer(layer_name).output)
         out = model.get_layer(layer_name).output
 
-        n_filters = 512
+        self.n_filters = 512
 
         pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
         pool_3 = MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
 
-        out_reshaped = Reshape((-1, n_filters))(out)
-        pool_1_reshaped = Reshape((-1, n_filters))(pool_1)
-        pool_2_reshaped = Reshape((-1, n_filters))(pool_2)
-        pool_3_reshaped = Reshape((-1, n_filters))(pool_3)
+        out_reshaped = Reshape((-1, self.n_filters))(out)
+        pool_1_reshaped = Reshape((-1, self.n_filters))(pool_1)
+        pool_2_reshaped = Reshape((-1, self.n_filters))(pool_2)
+        pool_3_reshaped = Reshape((-1, self.n_filters))(pool_3)
 
         out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
         # out = pool_1_reshaped
@@ -228,7 +228,7 @@ class NetVLADSiameseModel:
         self.negative = Input(shape=input_shape)
 
         output_shape = self.base_model.output_shape
-        n_filters = 512
+        n_filters = self.n_filters
 
         n_classes = 1
 
@@ -325,40 +325,46 @@ class NetVLADModelRetinaNet(NetVLADModel):
         self.layer_name = layer_name
 
     """
-
-
+# 'res4e_branch2a' x 80~
+# res4a_branch2a x 77
+# res4a_branch2b x 738
+# res4b_branch2b x 829
+# bn4b_branch2b x 845
+# res4c_branch2a x 804
+# bn4c_branch2a x 827
+# res4c_branch2b
+# bn4c_branch2b x 771
+# reshaping
 class NetVladResnet(NetVLADSiameseModel):
-    def __init__(self, layer_name='bn5c_branch2b'):
+    def __init__(self, layer_name='bn4b_branch2b'):
         # model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
         # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
         model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
-
+        model.summary()
         # set layers untrainable
-        for layer in model.layers[:125]:
-            layer.trainable = False
-            # print(layer, layer.trainable)
-
-        # for layer in model.layers[-20:]:
-        #    layer.trainable = True
-
-        model.get_layer('bn5c_branch2a').trainable = True
-        model.get_layer('res5c_branch2a').trainable = True
-
-        model.get_layer('res5c_branch2b').trainable = True
-        model.get_layer('bn5c_branch2b').trainable = True
 
         # custom_layer = model.get_layer(layer_name)
         # custom_layer.trainable = True
 
         # model.get_layer(layer_name).activation = activations.linear
         # model = vis.utils.utils.apply_modifications(model)
-        n_filters = 512
+        self.n_filters = 256
+
         out = model.get_layer(layer_name).output
-        out_reshaped = Reshape((-1, n_filters))(out)
+
+
+        pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
+        pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
+
+        out_reshaped = Reshape((-1, self.n_filters))(out)
+        pool_1_reshaped = Reshape((-1, self.n_filters))(pool_1)
+        pool_2_reshaped = Reshape((-1, self.n_filters))(pool_2)
+
+        out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
 
 
         self.backbone = model
-        self.base_model = Model(model.input, out_reshaped)
+        self.base_model = Model(model.input, out)
 
         self.layer_name = layer_name
         self.vgg_netvlad = None
