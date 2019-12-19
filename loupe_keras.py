@@ -72,7 +72,7 @@ class NetVLAD(layers.Layer):
     """Creates a NetVLAD class.
     """
 
-    def __init__(self, feature_size, max_samples, cluster_size, **kwargs):
+    def __init__(self, feature_size=512, max_samples=2000, cluster_size=64, **kwargs):
         self.feature_size = feature_size
         self.max_samples = max_samples
         #self.output_dim = output_dim

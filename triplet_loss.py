@@ -33,7 +33,7 @@ def triplet_loss(y_true, y_pred):
 
 
 class TripletLossLayer(Layer):
-    def __init__(self, alpha, **kwargs):
+    def __init__(self, alpha=0.1, **kwargs):
         self.alpha = alpha
         super(TripletLossLayer, self).__init__(**kwargs)
 

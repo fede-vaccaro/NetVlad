@@ -266,7 +266,7 @@ class LandmarkTripletGenerator():
     def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 4
+        n_classes = mining_batch_size // 3
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         if use_multiprocessing:
@@ -465,7 +465,7 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
 
         pages = math.ceil(DIM / netbatch_size)
 
-        keep_epoch = 4
+        keep_epoch = 1
         for e in range(keep_epoch):
             for page in range(pages):
                 triplets_out = im_triplets[page * netbatch_size: min((page + 1) * netbatch_size, DIM)]
