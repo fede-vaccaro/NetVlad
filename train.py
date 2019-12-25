@@ -19,14 +19,17 @@ import open_dataset_utils as my_utils
 from triplet_loss import TripletLossLayer
 import triplet_loss as tl
 import loupe_keras as lk
-from netvlad_model import NetVLADSiameseModel, NetVladResnet
+from netvlad_model import NetVLADSiameseModel, NetVladResnet, input_shape
 import paths
 import scipy
 import argparse
 import os
+from keras_radam import RAdam
+from keras_radam.training import RAdamOptimizer
+from tqdm import tqdm
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model", type=str,
@@ -39,7 +42,7 @@ args = vars(ap.parse_args())
 
 mining_batch_size = 2048
 minibatch_size = 24
-epochs = 60
+epochs = 200
 
 index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
 files = [paths.mirflickr_path + k for k in list(index.keys())]
@@ -54,7 +57,9 @@ print("Netvlad output shape: ", vgg_netvlad.output_shape)
 print("Feature extractor output shape: ", vgg.output_shape)
 
 test = args['test']
-train_kmeans = False and not test
+model_name = args['model']
+
+train_kmeans = True and not test and model_name is None
 train = True and not test
 
 if train_kmeans:
@@ -80,26 +85,30 @@ if train_kmeans:
     gc.collect()
 
 if train:
+    steps_per_epoch = 50
+
     vgg_netvlad.summary()
 
     start_epoch = args['start_epoch']
     vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
-    lr = 0.001
+    # lr = 1e-6
     # opt = optimizers.SGD(lr=lr, momentum=0.9, nesterov=True)  # choose optimiser. RMS is good too!
-    opt = optimizers.Adam(lr=lr)  # choose optimiser. RMS is good too!
+    # opt = optimizers.Adam(lr=lr)
+    lr = 1e-6
+    opt = optimizers.Adam(lr=lr)
     vgg_netvlad.compile(opt)
 
-    if args['model'] is not None:
-        model_name = args['model']
+    if model_name is not None:
         print("Resuming training from epoch {}".format(start_epoch))
         vgg_netvlad.load_weights(model_name)
         # vgg_netvlad = load_model(model_name, custom_objects={"L2NormLayer": tl.L2NormLayer, "NetVLAD": lk.NetVLAD,
         #                                                     "TripletLossLayer": TripletLossLayer})
-        K.set_value(vgg_netvlad.optimizer.lr, 1e-6)
-        print("LR set to: ", K.get_value(vgg_netvlad.optimizer.lr))
+        # K.set_value(vgg_netvlad.optimizer.lr, 1e-6)
 
-    steps_per_epoch = 50
-    steps_per_epoch_val = ceil(1491 / minibatch_size)
+    print("LR set to: ", K.get_value(vgg_netvlad.optimizer.lr))
+
+    steps_per_epoch_val = ceil(1491
+                               / minibatch_size)
 
     landmark_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                            model=my_model.get_netvlad_extractor(),
@@ -117,16 +126,44 @@ if train:
 
     not_improving_counter = 0
     not_improving_thresh = 15
+
+    description = "sc-adam-2"
+
     for e in range(epochs):
         t0 = time.time()
 
         losses_e = []
 
-        for s in range(steps_per_epoch):
+        pbar = tqdm(range(steps_per_epoch))
+
+        for s in pbar:
+            it = K.get_value(vgg_netvlad.optimizer.iterations)
+            min_lr = 1e-6
+            max_lr = 1e-5
+
+            break_epoch = 50
+            break_epoch_2 = 100
+
+            break_iteration = steps_per_epoch*break_epoch
+            break_iteration_2 = steps_per_epoch*(break_epoch_2 - break_epoch)
+            if e < break_epoch:
+                lr = max_lr*it/break_iteration + min_lr*(1. - it/break_iteration)
+            elif e < break_epoch_2:
+                it = it - break_iteration
+                lr = min_lr*it/break_iteration_2 + max_lr*(1. - it/break_iteration_2)
+            else:
+                lr = min_lr/(1 + 2e-4*(it - steps_per_epoch*break_epoch_2))
+
+            K.set_value(vgg_netvlad.optimizer.lr, lr)
+
+
             x, y = next(train_generator)
+            # print("Starting training at epoch ", e)
             loss_s = vgg_netvlad.train_on_batch(x, y)
             losses_e.append(loss_s)
-            print("Loss at epoch {0} step {1}: {2:.4f}".format(e + start_epoch, s, loss_s))
+
+            description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s, epochs + start_epoch, lr)
+            pbar.set_description(description_tqdm)
 
         print("")
         loss = np.array(losses_e).mean()
@@ -141,7 +178,7 @@ if train:
 
         val_loss = np.array(val_loss_e).mean()
 
-        min_val_loss = 0.0681
+        min_val_loss = np.inf
 
         if e > 0:
             min_val_loss = np.min(val_losses)
@@ -149,23 +186,27 @@ if train:
         val_losses.append(val_loss)
 
         if val_loss < min_val_loss:
-            model_name = "model_e{0}_adam_l{1:.4f}_.h5".format(e + start_epoch, val_loss)
+            model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_loss, description)
             print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_loss, model_name))
-            vgg_netvlad.save(model_name)
+            vgg_netvlad.save_weights(model_name)
             not_improving_counter = 0
         else:
-            print("Val loss ({0:.4f}) did not improved from {1:.4f}".format(val_loss, min_val_loss))
+            print("Val loss ({0:.4f}) did not improve from {1:.4f}".format(val_loss, min_val_loss))
             not_improving_counter += 1
             print("Val loss does not improve since {} epochs".format(not_improving_counter))
-            # if not_improving_counter == not_improving_thresh:
             if e % 5 == 0:
-                model_name = "model_e{0}_adam_l{1:.4f}_checkpoint.h5".format(e + start_epoch, val_loss)
+                model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_loss, description)
+                vgg_netvlad.save_weights(model_name)
                 print("Saving model to: {} (checkpoint)".format(model_name))
+            # if not_improving_counter == not_improving_thresh:
             if False:
-                lr *= 0.5
-                K.set_value(vgg_netvlad.optimizer.lr, lr)
-                print("Learning rate set to: {}".format(lr))
+                # lr *= 0.5
+                # K.set_value(vgg_netvlad.optimizer.lr, lr)
+                # print("Learning rate set to: {}".format(lr))
+                opt = optimizers.Adam(lr=lr)
+                vgg_netvlad.compile(opt)
                 not_improving_counter = 0
+                print("Optimizer weights restarted.")
 
         print("Validation loss: {}\n".format(val_loss))
         t1 = time.time()
@@ -173,9 +214,9 @@ if train:
 
     landmark_generator.loader.stop_loading()
 
-    model_name = "model_e{}_1812_adam.h5".format(epochs + start_epoch)
-    vgg_netvlad.save(model_name)
-    print("Saved model to disk")
+    model_name = "model_e{}_{}_.h5".format(epochs + start_epoch, description)
+    vgg_netvlad.save_weights(model_name)
+    print("Saved model to disk: ", model_name)
 
     plt.figure(figsize=(8, 8))
     plt.plot(losses, label='training loss')
@@ -186,9 +227,12 @@ if train:
     # plt.show()
 
 print("Testing model")
+print("Input shape: ", input_shape)
 
-# path = "model_e122_1812_sgd_l0.0712_.h5"
-# vgg_netvlad.load_weights(path)
+if test and model_name is not None:
+    print("Loading ", model_name)
+    vgg_netvlad.load_weights(model_name)
+
 vgg_netvlad = my_model.get_netvlad_extractor()
 pca_from_landmarks = False
 if pca_from_landmarks:
@@ -228,7 +272,6 @@ if pca_from_landmarks:
     pca_dataset.create_dataset('mean', data=pca.mean_)
     pca_dataset.close()
 
-
 imnames = hth.get_imlist_()
 query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
 # print(imnames)
@@ -237,7 +280,6 @@ print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
 print("Loading images")
 img_dict = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), rotate=True)
-
 
 img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)

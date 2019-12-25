@@ -2,7 +2,7 @@ import numpy as np
 import vis.utils.utils
 from keras import activations
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda
+from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda, BatchNormalization
 from keras.models import Model
 
 from loupe_keras import NetVLAD
@@ -27,7 +27,6 @@ class NetVLADSiameseModel:
             layer.trainable = True
             # print(layer, layer.trainable)
 
-
         model.get_layer(layer_name).activation = activations.linear
         model = vis.utils.utils.apply_modifications(model)
 
@@ -37,8 +36,8 @@ class NetVLADSiameseModel:
 
         self.n_filters = 512
 
-        pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
-        pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
+        pool_1 = MaxPool2D(pool_size=2, strides=2, padding='valid')(out)
+        pool_2 = MaxPool2D(pool_size=3, strides=2, padding='valid')(out)
         pool_3 = MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
 
         out_reshaped = Reshape((-1, self.n_filters))(out)
@@ -151,6 +150,7 @@ class NetVLADSiameseModel:
         # return Model(inputs=self.images_input, outputs=self.netvlad)
         return self.netvlad_base
 
+
 # 'res4e_branch2a' x 80~
 # res4a_branch2a x 77
 # res4a_branch2b x 738
@@ -164,22 +164,28 @@ class NetVLADSiameseModel:
 
 
 class NetVladResnet(NetVLADSiameseModel):
-    def __init__(self, layer_name='bn4b_branch2b'):
-        # model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
-        # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
+    def __init__(self, layer_name='bn4c_branch2b'):
         model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
-        # model.summary()
         # set layers untrainable
+        for layer in model.layers:
+            layer.trainable = False
+        #     # if type(layer) is type(BatchNormalization()):
+        #     #    layer.trainable = True
+        # for layer in model.layers:
+        #     if type(layer) is type(BatchNormalization()):
+        #         layer.trainable = True
 
-        # custom_layer = model.get_layer(layer_name)
-        # custom_layer.trainable = True
+        model.get_layer('res5c_branch2a').trainable = True
+        model.get_layer('bn5c_branch2a').trainable = True
+        #
+        model.get_layer('res5c_branch2b').trainable = True
+        model.get_layer('bn5c_branch2b').trainable = True
 
-        # model.get_layer(layer_name).activation = activations.linear
-        # model = vis.utils.utils.apply_modifications(model)
-        self.n_filters = 256
+        model.summary()
 
-        out = model.get_layer(layer_name).output
+        self.n_filters = 512
 
+        out = model.output
 
         pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
@@ -190,7 +196,6 @@ class NetVladResnet(NetVLADSiameseModel):
 
         out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
 
-
         self.backbone = model
         self.base_model = Model(model.input, out)
 
@@ -198,4 +203,4 @@ class NetVladResnet(NetVLADSiameseModel):
         self.vgg_netvlad = None
         self.images_input = None
         self.filter_l = 7
-        self.netvlad_output = self.filter_l * self.filter_l * 64
+        self.netvlad_output = self.n_filters * 64

@@ -209,7 +209,7 @@ class Loader(threading.Thread):
 
         self.keep_loading = True
 
-        self.q = queue.Queue(2)
+        self.q = queue.Queue(4)
         super(Loader, self).__init__()
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
@@ -231,7 +231,7 @@ class Loader(threading.Thread):
             images_array = []
             label_array = []
             # load the images
-            print("Opening the images (producer thread)")
+            # print("Opening the images (producer thread)")
             for im, index, dir in imgs:
                 image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
                 label = index
@@ -266,7 +266,7 @@ class LandmarkTripletGenerator():
     def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 3
+        n_classes = mining_batch_size // 4
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         if use_multiprocessing:
@@ -275,10 +275,12 @@ class LandmarkTripletGenerator():
         self.use_multiprocessing = use_multiprocessing
         self.minibatch_size = minibatch_size
         self.model = model
+        self.verbose = False
 
     def generator(self):
         while True:
-            print("New iteration")
+            if self.verbose:
+                print("New mining iteration")
             # pick n_classes from the dirs
 
             # images_array, label_array = load_batch(batch_size, classes, n_classes, train_dir)
@@ -287,8 +289,8 @@ class LandmarkTripletGenerator():
             if not self.use_multiprocessing:
                 self.loader.load_batch_()
             images_array, label_array = self.loader.q.get()
-
-            print("Computing descriptors (consumer thread)")
+            if self.verbose:
+                print("Computing descriptors (mining)")
             feats = self.model.predict(images_array)
             feats = normalize(feats)
 
@@ -298,7 +300,8 @@ class LandmarkTripletGenerator():
             triplets = []
 
             # find triplets:
-            print("Finding triplets")
+            if self.verbose:
+                print("Finding triplets (mining)")
             for i, row in enumerate(indices):
                 anchor_label = label_array[i]
 
@@ -345,13 +348,14 @@ class LandmarkTripletGenerator():
                     class_set += [label]
 
             triplets = selected_triplets
-            print("Different classes: {}".format(len(class_set)))
+            if self.verbose:
+                print("Different classes: {}".format(len(class_set)))
 
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
             random.shuffle(im_triplets)
 
-            del images_array, indices, distances, feats
-            gc.collect()
+            # del images_array, indices, distances, feats
+            # gc.collect()
 
             # select just K different classes
             K_classes = 256
@@ -392,7 +396,7 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
     label_array = []
 
     # load the images
-    print("Opening the images")
+    print("Opening the images (evaluation)")
     for im, index, dir in imgs:
         image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
         label = index
@@ -403,11 +407,11 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
     label_array = np.array(label_array)
 
     while True:
-        print("New iteration (testing)")
+        print("New iteration (evaluation)")
         # pick n_classes from the dirs
         # random.shuffle(classes)
 
-        print("Computing descriptors (testing)")
+        print("Computing descriptors (evaluation)")
         feats = model.predict(images_array)
         feats = normalize(feats)
 
@@ -417,7 +421,7 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
         triplets = []
 
         # find triplets:
-        print("Finding triplets")
+        print("Finding triplets (evaluation)")
         for i, row in enumerate(indices):
             anchor_label = label_array[i]
 
@@ -435,6 +439,7 @@ def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
                     j_neg = j
                 elif (j_neg != -1) and (r_label == anchor_label):  # se ha trovato prima un negativo di un positivo
                     j_pos = j
+
 
             if (j_pos is not -1) and (j_neg is not -1):
                 triplet = row[0], row[j_pos], row[j_neg]

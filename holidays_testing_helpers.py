@@ -30,7 +30,7 @@ def create_image_dict(img_list, input_shape=input_shape, preprocess_input=prepro
     rotated.close()
 
     for path in img_list:
-        img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
+        img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
         img_key = path.strip('holidays_small_2/')
 
         if img_key in list(rotated_imgs.keys()) and rotate:
