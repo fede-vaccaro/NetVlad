@@ -36,8 +36,8 @@ class NetVLADSiameseModel:
 
         self.n_filters = 512
 
-        pool_1 = MaxPool2D(pool_size=2, strides=2, padding='valid')(out)
-        pool_2 = MaxPool2D(pool_size=3, strides=2, padding='valid')(out)
+        pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
+        pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
         pool_3 = MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
 
         out_reshaped = Reshape((-1, self.n_filters))(out)

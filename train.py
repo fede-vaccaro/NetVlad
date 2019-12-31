@@ -28,8 +28,8 @@ from keras_radam import RAdam
 from keras_radam.training import RAdamOptimizer
 from tqdm import tqdm
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model", type=str,
@@ -40,9 +40,9 @@ ap.add_argument("-t", "--test", action='store_true',
                 help="If must be bypassed the training for testing")
 args = vars(ap.parse_args())
 
-mining_batch_size = 2048
+mining_batch_size = 2048*3
 minibatch_size = 24
-epochs = 200
+epochs = 120
 
 index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
 files = [paths.mirflickr_path + k for k in list(index.keys())]
@@ -96,6 +96,7 @@ if train:
     # opt = optimizers.Adam(lr=lr)
     lr = 1e-6
     opt = optimizers.Adam(lr=lr)
+    # opt = optimizers.SGD(lr=lr, momentum=0.9, nesterov=True)
     vgg_netvlad.compile(opt)
 
     if model_name is not None:
@@ -141,8 +142,8 @@ if train:
             min_lr = 1e-6
             max_lr = 1e-5
 
-            break_epoch = 50
-            break_epoch_2 = 100
+            break_epoch = 40
+            break_epoch_2 = 90
 
             break_iteration = steps_per_epoch*break_epoch
             break_iteration_2 = steps_per_epoch*(break_epoch_2 - break_epoch)
@@ -194,7 +195,7 @@ if train:
             print("Val loss ({0:.4f}) did not improve from {1:.4f}".format(val_loss, min_val_loss))
             not_improving_counter += 1
             print("Val loss does not improve since {} epochs".format(not_improving_counter))
-            if e % 5 == 0:
+            if e % 15 == 0:
                 model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_loss, description)
                 vgg_netvlad.save_weights(model_name)
                 print("Saving model to: {} (checkpoint)".format(model_name))
@@ -279,7 +280,7 @@ query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] ==
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
 print("Loading images")
-img_dict = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), rotate=True)
+img_dict = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), rotate=False)
 
 img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
@@ -324,3 +325,4 @@ perfect_result = hth.make_perfect_holidays_result(imnames, query_imids)
 print('Perfect mean AP = %.3f' % hth.mAP(query_imids, perfect_result, imnames=imnames))
 
 # hth.show_result(indices, nqueries=200)
+
