@@ -28,8 +28,14 @@ from keras_radam import RAdam
 from keras_radam.training import RAdamOptimizer
 from tqdm import tqdm
 
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+import tensorflow as tf
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+# gpu_devices = tf.config.experimental.list_physical_devices('GPU')
+# for device in gpu_devices:
+#   tf.config.experimental.set_memory_growth(device, True)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model", type=str,
@@ -116,7 +122,7 @@ if train:
                                                            mining_batch_size=mining_batch_size,
                                                            minibatch_size=minibatch_size)
 
-    train_generator = landmark_generator.generator()
+    train_generator = my_utils.triplets_from_csv('landmark_triplets.csv', paths.landmarks_path, minibatch_size)
 
     test_generator = my_utils.holidays_triplet_generator(paths.holidays_small_labeled_path,
                                                          model=my_model.get_netvlad_extractor(),
@@ -128,7 +134,7 @@ if train:
     not_improving_counter = 0
     not_improving_thresh = 15
 
-    description = "sc-adam-2"
+    description = "sc-adam-pre-mined"
 
     for e in range(epochs):
         t0 = time.time()
@@ -158,9 +164,9 @@ if train:
             K.set_value(vgg_netvlad.optimizer.lr, lr)
 
 
-            x, y = next(train_generator)
+            x = next(train_generator)
             # print("Starting training at epoch ", e)
-            loss_s = vgg_netvlad.train_on_batch(x, y)
+            loss_s = vgg_netvlad.train_on_batch(x, None)
             losses_e.append(loss_s)
 
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s, epochs + start_epoch, lr)

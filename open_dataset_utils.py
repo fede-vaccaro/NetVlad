@@ -16,15 +16,6 @@ from sklearn.preprocessing import normalize
 
 from netvlad_model import input_shape
 
-import tensorflow as tf
-
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-
-gpu_devices = tf.config.experimental.list_physical_devices('GPU')
-for device in gpu_devices:
-    tf.config.experimental.set_memory_growth(device, True)
-
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -41,6 +32,47 @@ def open_img(path, input_shape=input_shape):
     img_id = path.split('/')[-1]
 
     return img, img_id
+
+
+def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=input_shape, augmentation=False):
+    train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
+                                       width_shift_range=0.4,
+                                       height_shift_range=0.4,
+                                       shear_range=0.1,
+                                       zoom_range=0.4,
+                                       horizontal_flip=False,
+                                       fill_mode='nearest')
+
+    while True:
+        batch_paths = np.random.choice(a=files,
+                                       size=batch_size)
+
+        x_batch = []
+        label_batch = []
+
+        for input_path in batch_paths:
+            img, id = open_img(input_path, input_shape=input_shape)
+            x_batch += [img]
+
+            tags = np.zeros(len(classes))
+            for i, c in enumerate(classes):
+                if c in index[id]:
+                    tags[i] = 1
+            label_batch += [tags]
+
+        y_batch = np.zeros((batch_size, net_output + len(classes)))
+        x_batch = np.array(x_batch)
+        label_batch = np.array(label_batch)
+
+        # label_cross = np.dot(label_batch, label_batch.T)
+        # label_cross_bool = label_cross.astype('bool')
+        if net_output is not 0:
+            if augmentation:
+                generator_augmentation = train_datagen.flow(x_batch, label_batch, batch_size=batch_size, shuffle=True)
+                x_batch, label_batch = next(generator_augmentation)
+                yield ([x_batch, label_batch], y_batch)
+        else:
+            yield x_batch
 
 
 def generate_index_mirflickr(path):
@@ -485,22 +517,23 @@ import pandas as pd
 
 
 def triplets_from_csv(csv_path, train_dir, batch_size):
-    with open(csv_path, 'r') as csv:
-        csv = pd.read_csv(csv_path, index_col=[0])
-        while True:
-            samples = csv.sample(batch_size)
-            anchors, positives, negatives = [], [], []
-            for id, row in samples.iterrows():
-                a = id
-                p = row[0]
-                n = row[1]
+    csv = pd.read_csv(csv_path, index_col=[0])
+    while True:
+        samples = csv.sample(batch_size)
+        anchors, positives, negatives = [], [], []
+        for id, row in samples.iterrows():
+            a = id
+            p = row[0]
+            n = row[1]
 
-                print(a, p, n)
+            # print(a, p, n)
 
-                anchors.append(open_img(train_dir + a))
-                positives.append(open_img(train_dir + p))
-                negatives.append(open_img(train_dir + n))
-            yield np.array(anchors), np.array(positives), np.array(negatives)
+            anchors.append(open_img(train_dir + a)[0])
+            positives.append(open_img(train_dir + p)[0])
+            negatives.append(open_img(train_dir + n)[0])
+
+        anchors = np.array(anchors)
+        yield [anchors, np.array(positives), np.array(negatives)]
 
 
 import paths
@@ -512,7 +545,7 @@ def main():
     model_name = "model_e94_sc-adam_0.0709_wu.h5"
     vgg_netvlad.load_weights(model_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
-    miner = LandmarkMiner(paths.landmarks_path, model=vgg_netvlad, mining_batch_size=2048*3)
+    miner = LandmarkMiner(paths.landmarks_path, model=vgg_netvlad, mining_batch_size=2048 * 3)
     generator = miner.generator()
 
     n_images = 63000 * 4
@@ -534,7 +567,5 @@ def main():
 
     miner.loader.stop_loading()
 
-
-if __name__ == '__main__':
-    main()
-
+# if __name__ == '__main__':
+#    main()
