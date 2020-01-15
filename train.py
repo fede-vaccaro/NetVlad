@@ -1,35 +1,30 @@
 # %%
+import argparse
 import gc
 import time
 from math import ceil
-import h5py
 
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 from keras import Model, optimizers
 from keras import backend as K
-from keras.models import load_model
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
+# from keras_radam import RAdam
+# from keras_radam.training import RAdamOptimizer
+from tqdm import tqdm
 
 import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
-from triplet_loss import TripletLossLayer
-import triplet_loss as tl
-import loupe_keras as lk
-from netvlad_model import NetVLADSiameseModel, NetVladResnet, input_shape
 import paths
-import scipy
-import argparse
-import os
-from keras_radam import RAdam
-from keras_radam.training import RAdamOptimizer
-from tqdm import tqdm
+from netvlad_model import NetVLADSiameseModel, input_shape
+from triplet_loss import TripletLossLayer
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model", type=str,
@@ -41,8 +36,8 @@ ap.add_argument("-t", "--test", action='store_true',
 args = vars(ap.parse_args())
 
 mining_batch_size = 2048
-minibatch_size = 24
-epochs = 200
+minibatch_size = 20
+epochs = 100
 
 index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
 files = [paths.mirflickr_path + k for k in list(index.keys())]
@@ -89,7 +84,7 @@ if train:
 
     vgg_netvlad.summary()
 
-    start_epoch = args['start_epoch']
+    start_epoch = int(args['start_epoch']) + 1
     vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
     # lr = 1e-6
     # opt = optimizers.SGD(lr=lr, momentum=0.9, nesterov=True)  # choose optimiser. RMS is good too!
@@ -117,9 +112,9 @@ if train:
 
     train_generator = landmark_generator.generator()
 
-    test_generator = my_utils.holidays_triplet_generator(paths.holidays_small_labeled_path,
-                                                         model=my_model.get_netvlad_extractor(),
-                                                         netbatch_size=minibatch_size)
+    test_generator = my_utils.evaluation_triplet_generator(paths.oxford_small_labeled_path,
+                                                           model=my_model.get_netvlad_extractor(),
+                                                           netbatch_size=minibatch_size)
 
     losses = []
     val_losses = []
@@ -127,7 +122,7 @@ if train:
     not_improving_counter = 0
     not_improving_thresh = 15
 
-    description = "sc-adam-2"
+    description = "sc-adam-ox"
 
     for e in range(epochs):
         t0 = time.time()
@@ -144,25 +139,25 @@ if train:
             break_epoch = 50
             break_epoch_2 = 100
 
-            break_iteration = steps_per_epoch*break_epoch
-            break_iteration_2 = steps_per_epoch*(break_epoch_2 - break_epoch)
+            break_iteration = steps_per_epoch * break_epoch
+            break_iteration_2 = steps_per_epoch * (break_epoch_2 - break_epoch)
             if e < break_epoch:
-                lr = max_lr*it/break_iteration + min_lr*(1. - it/break_iteration)
+                lr = max_lr * it / break_iteration + min_lr * (1. - it / break_iteration)
             elif e < break_epoch_2:
                 it = it - break_iteration
-                lr = min_lr*it/break_iteration_2 + max_lr*(1. - it/break_iteration_2)
+                lr = min_lr * it / break_iteration_2 + max_lr * (1. - it / break_iteration_2)
             else:
-                lr = min_lr/(1 + 2e-4*(it - steps_per_epoch*break_epoch_2))
+                lr = min_lr / (1 + 2e-4 * (it - steps_per_epoch * break_epoch_2))
 
             K.set_value(vgg_netvlad.optimizer.lr, lr)
-
 
             x, y = next(train_generator)
             # print("Starting training at epoch ", e)
             loss_s = vgg_netvlad.train_on_batch(x, y)
             losses_e.append(loss_s)
 
-            description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s, epochs + start_epoch, lr)
+            description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
+                                                                                         epochs + start_epoch, lr)
             pbar.set_description(description_tqdm)
 
         print("")
@@ -223,7 +218,7 @@ if train:
     plt.plot(val_losses, label='validation loss')
     plt.legend()
     plt.title('Train/validation loss')
-    plt.savefig("train_val_loss.pdf")
+    plt.savefig("train_val_loss_{}.pdf".format(description))
     # plt.show()
 
 print("Testing model")

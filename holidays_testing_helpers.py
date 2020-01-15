@@ -7,6 +7,8 @@ import numpy as np
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 import yaml
+
+import paths
 from netvlad_model import input_shape
 
 
@@ -31,7 +33,7 @@ def create_image_dict(img_list, input_shape=input_shape, preprocess_input=prepro
 
     for path in img_list:
         img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
-        img_key = path.strip('holidays_small_2/')
+        img_key = path.strip(paths.holidays_pic_path)
 
         if img_key in list(rotated_imgs.keys()) and rotate:
             # print(img_key)

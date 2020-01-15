@@ -373,7 +373,7 @@ class LandmarkTripletGenerator():
                 yield [anchors, positives, negatives], None  # , [y_fake]*3
 
 
-def holidays_triplet_generator(train_dir, netbatch_size=32, model=None):
+def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
     classes = os.listdir(train_dir)
 
     # n_classes = batch_size // 4
