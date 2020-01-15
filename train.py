@@ -230,7 +230,8 @@ if test and model_name is not None:
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 pca_from_landmarks = False
-if pca_from_landmarks:
+use_pca = False
+if pca_from_landmarks and use_pca:
     generator = my_utils.LandmarkTripletGenerator(paths.landmarks_path, model=my_model.get_netvlad_extractor(),
                                                   use_multiprocessing=False)
     custom_generator = generator.generator()
@@ -282,10 +283,11 @@ img_tensor = np.array(img_tensor)
 print("Extracting features")
 all_feats = vgg_netvlad.predict(img_tensor)
 
-print("Training PCA")
-if pca_from_landmarks:
+if pca_from_landmarks and use_pca:
+    print("Training PCA")
     all_feats = pca.transform(all_feats)
-else:
+elif use_pca:
+    print("Training PCA")
     pca = PCA(512, svd_solver='full')
     # dataset = h5py.File("pca.h5", 'r')
     # components = dataset['components'][:]
