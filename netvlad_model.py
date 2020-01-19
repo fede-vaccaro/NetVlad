@@ -1,8 +1,9 @@
 import numpy as np
+import tensorflow as tf
 import vis.utils.utils
 from keras import activations
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D, Dense, Lambda, BatchNormalization
+from keras.layers import Input, Reshape, concatenate, MaxPool2D
 from keras.models import Model
 
 from loupe_keras import NetVLAD
@@ -11,7 +12,7 @@ from triplet_loss import L2NormLayer
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
 # input_shape = (224, 224, 3)
 input_shape = (336, 336, 3)
-# input_shape = (504, 504, 3)
+# input_shape = (None, None, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -35,6 +36,7 @@ class NetVLADSiameseModel:
         out = model.get_layer(layer_name).output
 
         self.n_filters = 512
+        self.n_cluster = 64
 
         pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
@@ -94,7 +96,7 @@ class NetVLADSiameseModel:
         # batch_norm = BatchNormalization()(self.base_model([self.images_input]))
         # reshape = Reshape((-1, n_filters))(batch_norm)
         l2normalization = L2NormLayer()(self.base_model.output)
-        netvlad = NetVLAD(feature_size=self.n_filters, max_samples=filter_l ** 2, cluster_size=64)
+        netvlad = NetVLAD(feature_size=self.n_filters, max_samples=filter_l ** 2, cluster_size=self.n_cluster)
 
         self.netvlad = netvlad
 
@@ -103,23 +105,22 @@ class NetVLADSiameseModel:
         netvlad_base = Model(self.base_model.input, netvlad)
         self.netvlad_base = netvlad_base
         # %%
-        netvlad_a = netvlad_base([self.anchor])
-        netvlad_p = netvlad_base([self.positive])
-        netvlad_n = netvlad_base([self.negative])
-
-        # embedding_output = netvlad(reshape(embedding(vgg.output)))
-        siamese_output = concatenate(
-            [netvlad_a, netvlad_p, netvlad_n]
-        )
-
-        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative],
-                            outputs=[netvlad_a, netvlad_p, netvlad_n])
 
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
 
+        vgg_netvlad = self.get_siamese_network()
+
         self.vgg_netvlad = vgg_netvlad
         return self.vgg_netvlad
+
+    def get_siamese_network(self):
+        netvlad_a = self.netvlad_base([self.anchor])
+        netvlad_p = self.netvlad_base([self.positive])
+        netvlad_n = self.netvlad_base([self.negative])
+        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative],
+                            outputs=[netvlad_a, netvlad_p, netvlad_n])
+        return vgg_netvlad
 
     def set_netvlad_weights(self, kmeans):
         # netvlad_ = self.vgg_netvlad.get_layer('net_vlad_1')
@@ -159,33 +160,31 @@ class NetVLADSiameseModel:
 # res4c_branch2a x 804
 # bn4c_branch2a x 827
 # res4c_branch2b
-# bn4c_branch2b x 771
-# reshaping --
+# bn4c_branch2b x 74.9
+# bn5c_branch2a x 81.4
+# bn5c_branch2a 32 cluster x 81.2
+# bn5c_branch2a diretto x 78.3
+# add_16 32 cluster x
+# add_16 2048 -> 512 -> 84.7
+# add_16 2048 -> 512 -> 64 cluter 85.0
 
 
 class NetVladResnet(NetVLADSiameseModel):
-    def __init__(self, layer_name='bn4c_branch2b'):
-        model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
+    def __init__(self, layer_name='bn5c_branch2a'):
+        model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape, layers=tf.keras.layers)
         # set layers untrainable
         for layer in model.layers:
             layer.trainable = False
-        #     # if type(layer) is type(BatchNormalization()):
-        #     #    layer.trainable = True
-        # for layer in model.layers:
-        #     if type(layer) is type(BatchNormalization()):
-        #         layer.trainable = True
 
-        model.get_layer('res5c_branch2a').trainable = True
-        model.get_layer('bn5c_branch2a').trainable = True
-        #
-        model.get_layer('res5c_branch2b').trainable = True
-        model.get_layer('bn5c_branch2b').trainable = True
+        for layer in model.layers[-60:]:
+            layer.trainable = True
 
         model.summary()
 
         self.n_filters = 512
+        self.n_cluster = 64
 
-        out = model.output
+        out = model.get_layer(layer_name).output
 
         pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
@@ -199,8 +198,10 @@ class NetVladResnet(NetVLADSiameseModel):
         self.backbone = model
         self.base_model = Model(model.input, out)
 
+        # self.base_model.summary()
+
         self.layer_name = layer_name
         self.vgg_netvlad = None
         self.images_input = None
         self.filter_l = 7
-        self.netvlad_output = self.n_filters * 64
+        self.netvlad_output = self.n_filters * 32

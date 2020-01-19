@@ -1,6 +1,7 @@
 # %%
 import argparse
 import gc
+import os
 import time
 from math import ceil
 
@@ -20,11 +21,12 @@ from tqdm import tqdm
 import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
 import paths
-from netvlad_model import NetVLADSiameseModel, input_shape
+from netvlad_model import NetVLADSiameseModel, input_shape, NetVladResnet
 from triplet_loss import TripletLossLayer
+from keras import layers, regularizers
 
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model", type=str,
@@ -37,11 +39,12 @@ args = vars(ap.parse_args())
 
 mining_batch_size = 2048
 minibatch_size = 20
-epochs = 100
+epochs = 20
 
 index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
 files = [paths.mirflickr_path + k for k in list(index.keys())]
 
+# my_model = NetVladResnet()
 my_model = NetVLADSiameseModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
@@ -54,8 +57,8 @@ print("Feature extractor output shape: ", vgg.output_shape)
 test = args['test']
 model_name = args['model']
 
-train_kmeans = True and not test and model_name is None
-train = True and not test
+train_kmeans = not test and model_name is None
+train = not test
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
@@ -70,7 +73,7 @@ if train_kmeans:
     np.random.shuffle(locals)
     print("Locals extracted: {}".format(locals.shape))
 
-    n_clust = 64
+    n_clust = my_model.n_cluster
     print("Fitting k-means")
     kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals[locals.shape[0] // 3:])
 
@@ -78,6 +81,34 @@ if train_kmeans:
 
     del all_descs
     gc.collect()
+
+train_pca = False
+if train_pca:
+    vgg_netvlad.load_weights("model_e111_sc-adam-2_0.0686.h5")
+    netvlad_base = my_model.get_netvlad_extractor()
+
+    for layer in netvlad_base.layers:
+        layer.trainable = False
+
+    out = netvlad_base.get_layer('net_vlad_1').output
+
+    pca_layer = layers.Dense(512, activation=None, kernel_regularizer=regularizers.l2(0.001))
+    out = pca_layer(out)
+    out = layers.Lambda(lambda x_: K.l2_normalize(x_, 0))(out)
+    netvlad_base = Model(my_model.base_model.input, out)
+
+    pca_files = h5py.File('pca.h5', 'r')
+    components_ = pca_files['components'][:]
+    mean_ = pca_files['mean'][:]
+    mean_ = -np.dot(mean_, components_.T)
+    print(mean_.shape)
+    pca_layer.set_weights([components_.T, mean_])
+    pca_files.close()
+
+
+    netvlad_base.summary()
+    my_model.netvlad_base = netvlad_base
+    vgg_netvlad = my_model.get_siamese_network()
 
 if train:
     steps_per_epoch = 50
@@ -112,7 +143,7 @@ if train:
 
     train_generator = landmark_generator.generator()
 
-    test_generator = my_utils.evaluation_triplet_generator(paths.oxford_small_labeled_path,
+    test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
                                                            model=my_model.get_netvlad_extractor(),
                                                            netbatch_size=minibatch_size)
 
@@ -122,8 +153,17 @@ if train:
     not_improving_counter = 0
     not_improving_thresh = 15
 
-    description = "sc-adam-ox"
+    description = "adam-pca"
 
+    val_loss_e = []
+
+    for s in range(steps_per_epoch_val):
+        x_val, _ = next(test_generator)
+        val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+        val_loss_e.append(val_loss_s)
+
+    starting_val_loss = np.array(val_loss_e).mean()
+    print("Starting validation loss: ", starting_val_loss)
     for e in range(epochs):
         t0 = time.time()
 
@@ -133,7 +173,7 @@ if train:
 
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
-            min_lr = 1e-6
+            min_lr = 1e-5
             max_lr = 1e-5
 
             break_epoch = 50
@@ -173,7 +213,7 @@ if train:
 
         val_loss = np.array(val_loss_e).mean()
 
-        min_val_loss = np.inf
+        min_val_loss = starting_val_loss
 
         if e > 0:
             min_val_loss = np.min(val_losses)
@@ -281,27 +321,32 @@ img_tensor = [img_dict[key] for key in img_dict]
 img_tensor = np.array(img_tensor)
 
 print("Extracting features")
-all_feats = vgg_netvlad.predict(img_tensor)
+all_feats = vgg_netvlad.predict(img_tensor, verbose=1)
 
 if pca_from_landmarks and use_pca:
     print("Training PCA")
     all_feats = pca.transform(all_feats)
 elif use_pca:
     print("Training PCA")
-    pca = PCA(512, svd_solver='full')
-    # dataset = h5py.File("pca.h5", 'r')
-    # components = dataset['components'][:]
-    # mean = dataset['mean'][:]
-    # pca.components_ = components
-    # pca.mean_ = mean
-    pca.fit(all_feats)
+
+    pca = PCA(512, whiten=False)
+    dataset = h5py.File("pca.h5", 'r')
+    components = dataset['components'][:]
+    mean = dataset['mean'][:]
+    explained_variance = dataset['explained_variance'][:]
+    pca.components_ = components
+    pca.mean_ = mean
+    pca.explained_variance_ = explained_variance
+
     all_feats = pca.transform(all_feats)
+
+    # pca.fit(all_feats)
 
     # all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
 
-all_feats_sign = np.sign(all_feats)
-all_feats = np.power(np.abs(all_feats), 0.5)
-all_feats = np.multiply(all_feats, all_feats_sign)
+# all_feats_sign = np.sign(all_feats)
+# all_feats = np.power(np.abs(all_feats), 0.5)
+# all_feats = np.multiply(all_feats, all_feats_sign)
 all_feats = normalize(all_feats)
 
 # all_feats = all_feats[:, n_queries:]

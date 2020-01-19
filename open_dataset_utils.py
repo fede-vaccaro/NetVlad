@@ -8,7 +8,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from keras.applications.vgg16 import preprocess_input
+from keras.applications.resnet50 import preprocess_input
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
@@ -26,7 +26,7 @@ def get_txtlist(path):
 
 
 def open_img(path, input_shape=input_shape):
-    img = image.load_img(path, target_size=(input_shape[0], input_shape[1]))
+    img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
     # img = (image.img_to_array(img) - 127.5) / 127.5
     img = preprocess_input(image.img_to_array(img))
     img_id = path.split('/')[-1]

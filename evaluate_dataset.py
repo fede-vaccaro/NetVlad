@@ -1,45 +1,31 @@
+import gc
 import os
 import subprocess
 import sys
 
 import h5py
 import numpy as np
+from PIL import Image
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
+from netvlad_model import NetVLADSiameseModel  # , NetVLADModelRetinaNet
+from netvlad_model import input_shape
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
-
-from netvlad_model import NetVLADSiameseModel  # , NetVLADModelRetinaNet
-from netvlad_model import input_shape
-
+from tqdm import tqdm
+from keras.preprocessing.image import ImageDataGenerator
+import math
+import paths
 
 def get_imlist(path):
-    return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(".jpg")]
-
-
-def create_image_dict(path):
-    # input_shape = (224, 224, 3)
-    img_list = get_imlist(path)
-    tensor = {}
-    for i, im_path in enumerate(img_list):
-        if (i - 1) % 500 is 0:
-            print("Img {} loaded".format(i))
-        img = image.load_img(im_path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
-        img = image.img_to_array(img)
-        img = preprocess_input(img)
-        img_key = im_path[len(path):][:-len(".jpg")]
-        # print(im_path, img_key)
-        tensor[img_key] = img
-
-    # tensor = np.array(tensor)
-    return tensor
+    return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
 
 def main():
     print("Loading image dict")
-    path_oxford = '/mnt/sdb-seagate/datasets/oxford5k/oxbuild_images_small/'
-    path_paris = '/mnt/sdb-seagate/datasets/paris_small/'
+    path_oxford = paths.path_oxford
+    path_paris = paths.path_paris
     path_holidays = 'holidays_small/'
 
     format = 'buildings'
@@ -47,55 +33,57 @@ def main():
         path = path_holidays
     elif format is 'buildings':
         path = path_oxford
-        path = path_paris
-
-    img_dict = create_image_dict(path)
-
-    # all_keys = [key for key in img_dict.keys()]
-    all_keys = list(img_dict.keys())
-    img_tensor = [img_dict[key] for key in img_dict.keys()]
-    img_tensor = np.array(img_tensor)
-
-    def sort_by_epoch(x):
-        x = x[len("weights-netvlad-"):]
-        x = x[:-len(".hdf5")]
-        x = int(x)
-        return x
+        # path = path_paris
 
     my_model = NetVLADSiameseModel()
     vgg_netvlad = my_model.build_netvladmodel()
-    weight_name = "model_e111_sc-adam-2_0.0686.h5"
+    weight_name = "model_e424_adam-200-steps-per-epoch_.h5"
 
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
 
-    #    for weight_name in sorted(os.listdir("/mnt/sdb-seagate/weights/"), key=sort_by_epoch):
+    base_resolution = (336, 336, 3)
 
+    input_shape_1 = (768, 768, 3)
+    input_shape_2 = (504, 504, 3)
+    input_shape_3 = (224, 224, 3)
+    input_shape_4 = (160, 160, 3)
+
+    batch_size = 64
+    input_shapes = [input_shape_1, input_shape_2]
+
+    datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
+
+    print("Loading images at shape: {}".format(base_resolution))
+    gen = datagen.flow_from_directory(path, target_size=(base_resolution[0], base_resolution[1]), batch_size=batch_size,
+                                      class_mode=None,
+                                      shuffle=False, interpolation='bilinear')
     print("Computing descriptors")
-    all_feats = vgg_netvlad.predict(img_tensor, verbose=1)
+    img_list = [os.path.splitext(os.path.split(f)[1])[0] for f in gen.filenames]
+    n_steps = math.ceil(len(img_list)/batch_size)
+    all_feats = vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1)
 
-    del img_tensor
+    multi_resolution = False
+    if multi_resolution:
+        for shape in input_shapes:
+            print("Loading images at shape: {}".format(shape))
+            gen = datagen.flow_from_directory(path, target_size=(shape[0], shape[1]),
+                                              batch_size=batch_size,
+                                              class_mode=None,
+                                              shuffle=False, interpolation='bilinear')
+            print("Computing descriptors")
+            all_feats += vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1, use_multiprocessing=True)
 
-    # save all feats
-    save_feat = False
-    if save_feat:
-        dataset = h5py.File("feats.h5", 'w')
-        for feat, id in zip(all_feats, all_keys):
-            dataset.create_dataset(id, data=feat)
-        dataset.close()
+    all_feats = normalize(all_feats)
 
-    use_pca = True
-    use_trained_pca = True
+    use_pca = False
+    use_trained_pca = False
 
     if use_pca:
         if not use_trained_pca:
             print("Computing PCA")
-
             all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
-            all_feats_sign = np.sign(all_feats)
-            all_feats = np.power(np.abs(all_feats), 0.5)
-            all_feats = np.multiply(all_feats, all_feats_sign)
         else:
             print("Loading PCA")
             pca = PCA()
@@ -107,10 +95,16 @@ def main():
 
             all_feats = pca.transform(all_feats)
 
+    use_power_norm = True
+    if use_power_norm:
+        all_feats_sign = np.sign(all_feats)
+        all_feats = np.power(np.abs(all_feats), 0.5)
+        all_feats = np.multiply(all_feats, all_feats_sign)
+
     all_feats = normalize(all_feats)
 
     print("Computing NN")
-    nbrs = NearestNeighbors(n_neighbors=len(all_keys), metric='cosine').fit(all_feats)
+    nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
 
     # imnames = all_keys
 
@@ -120,21 +114,21 @@ def main():
     print(indices.shape)
 
     if format is 'buildings':
-        for i, row in enumerate(indices):
-            file = open("results/{}_ranked_list.dat".format(all_keys[i]), 'w')
+        for i, row in tqdm(enumerate(indices)):
+            file = open("results/{}_ranked_list.dat".format(img_list[i]), 'w')
             # file.write(all_keys[i] + " ")
             for j in row:
-                file.write(all_keys[j] + "\n")
+                file.write(img_list[j] + "\n")
             # file.write("\n")
             file.close()
 
     elif format is 'inria':
         file = open("eval_holidays/holidays_results.dat", 'w')
         for i, row in enumerate(indices):
-            if int(all_keys[i]) % 100 is 0:
-                string = all_keys[i] + ".jpg "
+            if int(img_list[i]) % 100 is 0:
+                string = img_list[i] + ".jpg "
                 for k, j in enumerate(row[1:]):
-                    string += "{} {}.jpg ".format(k, all_keys[j])
+                    string += "{} {}.jpg ".format(k, img_list[j])
                 file.write(string + "\n")
         file.close()
 
