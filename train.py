@@ -1,7 +1,6 @@
 # %%
 import argparse
 import gc
-import os
 import time
 from math import ceil
 
@@ -10,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from keras import Model, optimizers
 from keras import backend as K
+from keras import layers, regularizers
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
@@ -21,9 +21,8 @@ from tqdm import tqdm
 import holidays_testing_helpers as hth
 import open_dataset_utils as my_utils
 import paths
-from netvlad_model import NetVLADSiameseModel, input_shape, NetVladResnet
+from netvlad_model import NetVLADSiameseModel, input_shape
 from triplet_loss import TripletLossLayer
-from keras import layers, regularizers
 
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -57,7 +56,8 @@ print("Feature extractor output shape: ", vgg.output_shape)
 test = args['test']
 model_name = args['model']
 
-train_kmeans = not test and model_name is None
+train_pca = False
+train_kmeans = not test and model_name is None and not train_pca
 train = not test
 
 if train_kmeans:
@@ -82,7 +82,6 @@ if train_kmeans:
     del all_descs
     gc.collect()
 
-train_pca = False
 if train_pca:
     vgg_netvlad.load_weights("model_e111_sc-adam-2_0.0686.h5")
     netvlad_base = my_model.get_netvlad_extractor()
@@ -105,10 +104,28 @@ if train_pca:
     pca_layer.set_weights([components_.T, mean_])
     pca_files.close()
 
-
     netvlad_base.summary()
     my_model.netvlad_base = netvlad_base
     vgg_netvlad = my_model.get_siamese_network()
+
+
+def lr_warmup(it):
+    min_lr = 1e-5
+    max_lr = 1e-5
+    break_epoch = 50
+    break_epoch_2 = 100
+    break_iteration = steps_per_epoch * break_epoch
+    break_iteration_2 = steps_per_epoch * (break_epoch_2 - break_epoch)
+    if e < break_epoch:
+        lr = max_lr * it / break_iteration + min_lr * (1. - it / break_iteration)
+    elif e < break_epoch_2:
+        it = it - break_iteration
+        lr = min_lr * it / break_iteration_2 + max_lr * (1. - it / break_iteration_2)
+    else:
+        lr = min_lr / (1 + 2e-4 * (it - steps_per_epoch * break_epoch_2))
+
+    return lr
+
 
 if train:
     steps_per_epoch = 50
@@ -120,7 +137,7 @@ if train:
     # lr = 1e-6
     # opt = optimizers.SGD(lr=lr, momentum=0.9, nesterov=True)  # choose optimiser. RMS is good too!
     # opt = optimizers.Adam(lr=lr)
-    lr = 1e-6
+    lr = 1e-5
     opt = optimizers.Adam(lr=lr)
     vgg_netvlad.compile(opt)
 
@@ -173,21 +190,8 @@ if train:
 
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
-            min_lr = 1e-5
-            max_lr = 1e-5
-
-            break_epoch = 50
-            break_epoch_2 = 100
-
-            break_iteration = steps_per_epoch * break_epoch
-            break_iteration_2 = steps_per_epoch * (break_epoch_2 - break_epoch)
-            if e < break_epoch:
-                lr = max_lr * it / break_iteration + min_lr * (1. - it / break_iteration)
-            elif e < break_epoch_2:
-                it = it - break_iteration
-                lr = min_lr * it / break_iteration_2 + max_lr * (1. - it / break_iteration_2)
-            else:
-                lr = min_lr / (1 + 2e-4 * (it - steps_per_epoch * break_epoch_2))
+            lr = cosine_decay_with_warmup(total_steps=epochs * steps_per_epoch, global_step=it, learning_rate_base=1e-5,
+                                          warmup_steps=40 * steps_per_epoch, warmup_learning_rate=1e-6)
 
             K.set_value(vgg_netvlad.optimizer.lr, lr)
 
