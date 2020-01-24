@@ -8,10 +8,14 @@ from keras.models import Model
 
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
+import tensorflow as tf
+from keras import layers
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
 # input_shape = (224, 224, 3)
 input_shape = (336, 336, 3)
+
+
 # input_shape = (None, None, 3)
 
 
@@ -23,10 +27,32 @@ class NetVLADSiameseModel:
         model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
         # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
 
-        # set layers untrainable
+        regularizer = tf.keras.regularizers.l2(0.001)
+
         for layer in model.layers:
+            layer.trainable = False
+
+        training_layers = [
+            model.get_layer('block5_conv1'),
+            model.get_layer('block5_conv2'),
+        ]
+
+        # set layers untrainable
+        for layer in training_layers:
             layer.trainable = True
             # print(layer, layer.trainable)
+            for attr in ['kernel_regularizer']:
+                if hasattr(layer, attr):
+                    setattr(layer, attr, regularizer)
+
+        # # set layers untrainable
+        # for layer in model.layers:
+        #     layer.trainable = True
+        #     # print(layer, layer.trainable)
+        #     for attr in ['kernel_regularizer']:
+        #         if hasattr(layer, attr):
+        #             setattr(layer, attr, regularizer)
+
 
         model.get_layer(layer_name).activation = activations.linear
         model = vis.utils.utils.apply_modifications(model)
@@ -40,15 +66,12 @@ class NetVLADSiameseModel:
 
         pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
-        pool_3 = MaxPool2D(pool_size=4, strides=1, padding='valid')(out)
 
         out_reshaped = Reshape((-1, self.n_filters))(out)
         pool_1_reshaped = Reshape((-1, self.n_filters))(pool_1)
         pool_2_reshaped = Reshape((-1, self.n_filters))(pool_2)
-        pool_3_reshaped = Reshape((-1, self.n_filters))(pool_3)
 
         out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
-        # out = pool_1_reshaped
 
         self.backbone = model
         self.base_model = Model(model.input, out)
@@ -84,17 +107,8 @@ class NetVLADSiameseModel:
         self.positive = Input(shape=input_shape)
         self.negative = Input(shape=input_shape)
 
-        output_shape = self.base_model.output_shape
-
-        n_classes = 1
-
-        # transpose = Permute((3, 1, 2), input_shape=(-1, n_filters))(self.base_model([self.images_input]))
-
         filter_l = self.filter_l
 
-        # vgg_output = vgg.output_shape[1]
-        # batch_norm = BatchNormalization()(self.base_model([self.images_input]))
-        # reshape = Reshape((-1, n_filters))(batch_norm)
         l2normalization = L2NormLayer()(self.base_model.output)
         netvlad = NetVLAD(feature_size=self.n_filters, max_samples=filter_l ** 2, cluster_size=self.n_cluster)
 
@@ -104,7 +118,6 @@ class NetVLADSiameseModel:
 
         netvlad_base = Model(self.base_model.input, netvlad)
         self.netvlad_base = netvlad_base
-        # %%
 
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
@@ -123,7 +136,6 @@ class NetVLADSiameseModel:
         return vgg_netvlad
 
     def set_netvlad_weights(self, kmeans):
-        # netvlad_ = self.vgg_netvlad.get_layer('net_vlad_1')
         netvlad_ = self.netvlad
         weights_netvlad = netvlad_.get_weights()
         # %%
@@ -140,7 +152,7 @@ class NetVLADSiameseModel:
         cluster_weights = np.expand_dims(cluster_weights, axis=0)
         # assignments_weights = np.expand_dims(assignments_weights, axis=0)
         # assignments_bias = np.expand_dims(assignments_bias, axis=0)
-        # %%
+
         weights_netvlad[0] = assignments_weights
         weights_netvlad[1] = assignments_bias
         weights_netvlad[2] = cluster_weights
@@ -174,10 +186,16 @@ class NetVladResnet(NetVLADSiameseModel):
         model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape, layers=tf.keras.layers)
         # set layers untrainable
         for layer in model.layers:
-            layer.trainable = False
+            if type(layer) is not type(layers.BatchNormalization()):
+                layer.trainable = False
+
+        regularizer = tf.keras.regularizers.l2(0.001)
 
         for layer in model.layers[-60:]:
             layer.trainable = True
+            for attr in ['kernel_regularizer']:
+                if hasattr(layer, attr):
+                    setattr(layer, attr, regularizer)
 
         model.summary()
 

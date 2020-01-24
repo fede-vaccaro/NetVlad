@@ -12,9 +12,9 @@ import paths
 from netvlad_model import input_shape
 
 
-def get_imlist_(path="holidays_small"):
+def get_imlist_(path="holidays_small_2"):
     imnames = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
-    imnames = [path.strip("holidays_small/") for path in imnames]
+    imnames = [path.strip("holidays_small_2/") for path in imnames]
     imnames = [path.strip('.jpg') for path in imnames]
     return imnames
 

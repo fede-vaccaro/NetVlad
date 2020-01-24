@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
-from netvlad_model import NetVLADSiameseModel  # , NetVLADModelRetinaNet
+from netvlad_model import NetVLADSiameseModel, NetVladResnet  # , NetVLADModelRetinaNet
 from netvlad_model import input_shape
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
@@ -21,12 +21,14 @@ import paths
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
 def main():
     print("Loading image dict")
     path_oxford = paths.path_oxford
     path_paris = paths.path_paris
-    path_holidays = 'holidays_small/'
+    path_holidays = 'holidays_2/'
 
     format = 'buildings'
     if format is 'inria':
@@ -36,8 +38,9 @@ def main():
         # path = path_paris
 
     my_model = NetVLADSiameseModel()
+    # my_model = NetVladResnet()
     vgg_netvlad = my_model.build_netvladmodel()
-    weight_name = "model_e424_adam-200-steps-per-epoch_.h5"
+    weight_name = "model_e18_vgg-adam-wu-block5_0.0729.h5"
 
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)

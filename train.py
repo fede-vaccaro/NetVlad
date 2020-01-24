@@ -1,15 +1,21 @@
 # %%
 import argparse
 import gc
+import os
 import time
 from math import ceil
 
+import clr_callback as clr
 import h5py
+import holidays_testing_helpers as hth
 import matplotlib.pyplot as plt
 import numpy as np
+import open_dataset_utils as my_utils
+import paths
 from keras import Model, optimizers
 from keras import backend as K
 from keras import layers, regularizers
+from netvlad_model import NetVLADSiameseModel, input_shape, NetVladResnet
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
@@ -17,15 +23,16 @@ from sklearn.preprocessing import normalize
 # from keras_radam import RAdam
 # from keras_radam.training import RAdamOptimizer
 from tqdm import tqdm
-
-import holidays_testing_helpers as hth
-import open_dataset_utils as my_utils
-import paths
-from netvlad_model import NetVLADSiameseModel, input_shape
 from triplet_loss import TripletLossLayer
+import tensorflow as tf
+import keras
 
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+# gpu_devices = tf.config.experimental.list_physical_devices('GPU')
+# for device in gpu_devices:
+#   tf.config.experimental.set_memory_growth(device, True)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model", type=str,
@@ -37,14 +44,16 @@ ap.add_argument("-t", "--test", action='store_true',
 args = vars(ap.parse_args())
 
 mining_batch_size = 2048
-minibatch_size = 20
-epochs = 20
+minibatch_size = 24
+epochs = 160
+
+# my_model = NetVladResnet()
+
+my_model = NetVLADSiameseModel()
 
 index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
 files = [paths.mirflickr_path + k for k in list(index.keys())]
 
-# my_model = NetVladResnet()
-my_model = NetVLADSiameseModel()
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=160)
@@ -82,35 +91,8 @@ if train_kmeans:
     del all_descs
     gc.collect()
 
-if train_pca:
-    vgg_netvlad.load_weights("model_e111_sc-adam-2_0.0686.h5")
-    netvlad_base = my_model.get_netvlad_extractor()
-
-    for layer in netvlad_base.layers:
-        layer.trainable = False
-
-    out = netvlad_base.get_layer('net_vlad_1').output
-
-    pca_layer = layers.Dense(512, activation=None, kernel_regularizer=regularizers.l2(0.001))
-    out = pca_layer(out)
-    out = layers.Lambda(lambda x_: K.l2_normalize(x_, 0))(out)
-    netvlad_base = Model(my_model.base_model.input, out)
-
-    pca_files = h5py.File('pca.h5', 'r')
-    components_ = pca_files['components'][:]
-    mean_ = pca_files['mean'][:]
-    mean_ = -np.dot(mean_, components_.T)
-    print(mean_.shape)
-    pca_layer.set_weights([components_.T, mean_])
-    pca_files.close()
-
-    netvlad_base.summary()
-    my_model.netvlad_base = netvlad_base
-    vgg_netvlad = my_model.get_siamese_network()
-
-
 def lr_warmup(it):
-    min_lr = 1e-5
+    min_lr = 1e-6
     max_lr = 1e-5
     break_epoch = 50
     break_epoch_2 = 100
@@ -128,27 +110,48 @@ def lr_warmup(it):
 
 
 if train:
-    steps_per_epoch = 50
+    steps_per_epoch = 400
 
     vgg_netvlad.summary()
 
-    start_epoch = int(args['start_epoch']) + 1
+    start_epoch = int(args['start_epoch'])
     vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
     # lr = 1e-6
     # opt = optimizers.SGD(lr=lr, momentum=0.9, nesterov=True)  # choose optimiser. RMS is good too!
     # opt = optimizers.Adam(lr=lr)
     lr = 1e-5
-    opt = optimizers.Adam(lr=lr)
-    vgg_netvlad.compile(opt)
+    cyclic = clr.CyclicLR(base_lr=1e-6, max_lr=1e-5, mode='exp_range', gamma=0.99993)
 
     if model_name is not None:
-        print("Resuming training from epoch {}".format(start_epoch))
+        print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch*start_epoch))
         vgg_netvlad.load_weights(model_name)
         # vgg_netvlad = load_model(model_name, custom_objects={"L2NormLayer": tl.L2NormLayer, "NetVLAD": lk.NetVLAD,
         #                                                     "TripletLossLayer": TripletLossLayer})
         # K.set_value(vgg_netvlad.optimizer.lr, 1e-6)
 
-    print("LR set to: ", K.get_value(vgg_netvlad.optimizer.lr))
+
+        # new layers to train
+        model = vgg_netvlad.get_layer('model_3')
+        training_layers = [
+            model.get_layer('block4_conv1'),
+            model.get_layer('block4_conv2'),
+            model.get_layer('block4_conv3'),
+        ]
+
+        # set layers untrainable
+        for layer in training_layers:
+            layer.trainable = True
+            # print(layer, layer.trainable)
+            for attr in ['kernel_regularizer']:
+                if hasattr(layer, attr):
+                    setattr(layer, attr, my_model.regularizer)
+
+        vgg_netvlad.summary()
+
+    opt = optimizers.Adam(lr=lr)
+    vgg_netvlad.compile(opt)
+
+    # print("LR set to: ", K.get_value(vgg_netvlad.optimizer.lr))
 
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
@@ -160,7 +163,7 @@ if train:
 
     train_generator = landmark_generator.generator()
 
-    test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
+    test_generator = my_utils.evaluation_triplet_generator(paths.path_oxford_by_queries,#paths.holidays_small_labeled_path,
                                                            model=my_model.get_netvlad_extractor(),
                                                            netbatch_size=minibatch_size)
 
@@ -170,7 +173,7 @@ if train:
     not_improving_counter = 0
     not_improving_thresh = 15
 
-    description = "adam-pca"
+    description = "vgg-adam-wu-block4-block5"
 
     val_loss_e = []
 
@@ -190,8 +193,13 @@ if train:
 
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
-            lr = cosine_decay_with_warmup(total_steps=epochs * steps_per_epoch, global_step=it, learning_rate_base=1e-5,
-                                          warmup_steps=40 * steps_per_epoch, warmup_learning_rate=1e-6)
+            # lr = lr_warmup(it)
+            # lr = cyclic.clr()
+            # cyclic.clr_iterations = it
+
+            lr = clr.cosine_decay_with_warmup(total_steps=epochs * steps_per_epoch, global_step=it,
+                                              learning_rate_base=1.e-5,
+                                              warmup_steps=2000, warmup_learning_rate=1e-6)
 
             K.set_value(vgg_netvlad.optimizer.lr, lr)
 
@@ -275,6 +283,7 @@ if test and model_name is not None:
 vgg_netvlad = my_model.get_netvlad_extractor()
 pca_from_landmarks = False
 use_pca = False
+
 if pca_from_landmarks and use_pca:
     generator = my_utils.LandmarkTripletGenerator(paths.landmarks_path, model=my_model.get_netvlad_extractor(),
                                                   use_multiprocessing=False)
@@ -348,9 +357,9 @@ elif use_pca:
 
     # all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
 
-# all_feats_sign = np.sign(all_feats)
-# all_feats = np.power(np.abs(all_feats), 0.5)
-# all_feats = np.multiply(all_feats, all_feats_sign)
+all_feats_sign = np.sign(all_feats)
+all_feats = np.power(np.abs(all_feats), 0.5)
+all_feats = np.multiply(all_feats, all_feats_sign)
 all_feats = normalize(all_feats)
 
 # all_feats = all_feats[:, n_queries:]

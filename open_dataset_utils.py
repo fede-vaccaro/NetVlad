@@ -8,14 +8,13 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from keras.applications.resnet50 import preprocess_input
+from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 from netvlad_model import input_shape
-
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -358,9 +357,10 @@ class LandmarkTripletGenerator():
             # gc.collect()
 
             # select just K different classes
-            K_classes = 256
-            K_classes = min(K_classes, len(class_set))
-            im_triplets = im_triplets[:K_classes]
+            # K_classes = 256
+            K_classes = len(im_triplets)
+            # K_classes = min(K_classes, len(class_set))
+            # im_triplets = im_triplets[:K_classes]
 
             pages = math.ceil(K_classes / self.minibatch_size)
             for page in range(pages):
