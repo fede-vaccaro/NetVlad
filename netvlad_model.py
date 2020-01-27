@@ -13,8 +13,8 @@ from keras import layers
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
 # input_shape = (224, 224, 3)
-# input_shape = (336, 336, 3)
-input_shape = (None, None, 3)
+input_shape = (336, 336, 3)
+# input_shape = (None, None, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -105,7 +105,7 @@ class NetVLADSiameseModel:
 
         return Model(inputs=self.images_input, output=flatten)
 
-    def build_netvladmodel(self, kmeans=None):
+    def build_netvladmodel(self, kmeans=None, pca=None):
         self.images_input = Input(shape=input_shape)
 
         self.anchor = Input(shape=input_shape)
@@ -115,17 +115,22 @@ class NetVLADSiameseModel:
         filter_l = self.filter_l
 
         l2normalization = L2NormLayer()(self.base_model.output)
-        netvlad = NetVLAD(feature_size=self.n_filters, max_samples=filter_l ** 2, cluster_size=self.n_cluster)
+        ### pca here
+        pca = layers.Dense(256, kernel_regularizer=self.regularizer)
 
+        self.pca = pca
+        pca = pca(l2normalization)
+        l2normalization = L2NormLayer()(pca)
+
+        netvlad = NetVLAD(feature_size=256, max_samples=filter_l ** 2, cluster_size=self.n_cluster)
         self.netvlad = netvlad
-
         netvlad = netvlad(l2normalization)
 
         netvlad_base = Model(self.base_model.input, netvlad)
         self.netvlad_base = netvlad_base
 
-        if kmeans is not None:
-            self.set_netvlad_weights(kmeans)
+        if kmeans is not None and pca is not None:
+            self.set_netvlad_weights(kmeans, pca)
 
         vgg_netvlad = self.get_siamese_network()
 
@@ -140,7 +145,7 @@ class NetVLADSiameseModel:
                             outputs=[netvlad_a, netvlad_p, netvlad_n])
         return vgg_netvlad
 
-    def set_netvlad_weights(self, kmeans):
+    def set_netvlad_weights(self, kmeans, pca):
         netvlad_ = self.netvlad
         weights_netvlad = netvlad_.get_weights()
         # %%
@@ -163,6 +168,13 @@ class NetVLADSiameseModel:
         weights_netvlad[2] = cluster_weights
 
         netvlad_.set_weights(weights_netvlad)
+
+        ## set pca weights
+        mean_ = pca.mean_
+        components_ = pca.components_
+
+        mean_ = -np.dot(mean_, components_.T)
+        self.pca.set_weights([components_.T, mean_])
 
     def get_netvlad_extractor(self):
         # return Model(inputs=self.images_input, outputs=self.netvlad)
