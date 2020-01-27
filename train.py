@@ -28,7 +28,7 @@ import tensorflow as tf
 import keras
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 # gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 # for device in gpu_devices:
@@ -66,11 +66,11 @@ model_name = args['model']
 
 train_pca = False
 train_kmeans = not test and model_name is None and not train_pca
-train = not test
+train = not test and False
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=45, verbose=1)
+    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=10, verbose=1)
     print("All descs shape: ", all_descs.shape)
 
     locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in all_descs)).astype('float32')
@@ -343,15 +343,19 @@ img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), inpu
 print("Extracting features")
 all_feats = vgg_netvlad.predict(img_tensor, verbose=1)
 
-for shape in input_shapes:
-    img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=shape,
-                                       rotate=True)
-    batch_size = 32
-    if shape[0] == 768:
-        batch_size = 16
 
-    all_feats += vgg_netvlad.predict(img_tensor, verbose=1, batch_size=batch_size)
+use_multiscale = False
+if use_multiscale:
+    for shape in input_shapes:
+        img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=shape,
+                                           rotate=True)
+        batch_size = 32
+        if shape[0] == 768:
+            batch_size = 16
 
+        all_feats += vgg_netvlad.predict(img_tensor, verbose=1, batch_size=batch_size)
+
+power_norm = False
 if power_norm:
     all_feats_sign = np.sign(all_feats)
     all_feats = np.power(np.abs(all_feats), 0.5)
