@@ -45,7 +45,11 @@ def create_image_dict(img_list, input_shape=input_shape, preprocess_input=prepro
         img = preprocess_input(img)
         tensor[img_key] = img
     # tensor = np.array(tensor)
-    return tensor
+
+    img_tensor = [tensor[key] for key in tensor]
+    img_tensor = np.array(img_tensor)
+
+    return img_tensor
 
 
 def make_perfect_holidays_result(imnames, q_ids):

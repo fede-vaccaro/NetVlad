@@ -22,7 +22,7 @@ def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 def main():
     print("Loading image dict")
@@ -40,7 +40,9 @@ def main():
     my_model = NetVLADSiameseModel()
     # my_model = NetVladResnet()
     vgg_netvlad = my_model.build_netvladmodel()
-    weight_name = "model_e18_vgg-adam-wu-block5_0.0729.h5"
+
+    # weight_name = "model_e134_vgg-adam-continuation_0.0704_checkpoint.h5
+    weight_name = "model_e269_vgg-adam-continuation_0.0690_checkpoint.h5"
 
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
@@ -53,8 +55,8 @@ def main():
     input_shape_3 = (224, 224, 3)
     input_shape_4 = (160, 160, 3)
 
-    batch_size = 64
-    input_shapes = [input_shape_1, input_shape_2]
+    batch_size = 32
+    input_shapes = [input_shape_2, input_shape_3]
 
     datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 
@@ -76,7 +78,7 @@ def main():
                                               class_mode=None,
                                               shuffle=False, interpolation='bilinear')
             print("Computing descriptors")
-            all_feats += vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1, use_multiprocessing=True)
+            all_feats += vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1)
 
     all_feats = normalize(all_feats)
 

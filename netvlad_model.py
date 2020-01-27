@@ -13,10 +13,8 @@ from keras import layers
 
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
 # input_shape = (224, 224, 3)
-input_shape = (336, 336, 3)
-
-
-# input_shape = (None, None, 3)
+# input_shape = (336, 336, 3)
+input_shape = (None, None, 3)
 
 
 # vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
@@ -28,30 +26,37 @@ class NetVLADSiameseModel:
         # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
 
         regularizer = tf.keras.regularizers.l2(0.001)
+        self.regularizer = regularizer
+        few_layers = False
 
-        for layer in model.layers:
-            layer.trainable = False
+        if few_layers:
+            for layer in model.layers:
+                layer.trainable = False
 
-        training_layers = [
-            model.get_layer('block5_conv1'),
-            model.get_layer('block5_conv2'),
-        ]
+            training_layers = [
+                model.get_layer('block5_conv1'),
+                model.get_layer('block5_conv2'),
 
-        # set layers untrainable
-        for layer in training_layers:
-            layer.trainable = True
-            # print(layer, layer.trainable)
-            for attr in ['kernel_regularizer']:
-                if hasattr(layer, attr):
-                    setattr(layer, attr, regularizer)
+                model.get_layer('block4_conv1'),
+                model.get_layer('block4_conv2'),
+                model.get_layer('block4_conv3'),
+            ]
 
-        # # set layers untrainable
-        # for layer in model.layers:
-        #     layer.trainable = True
-        #     # print(layer, layer.trainable)
-        #     for attr in ['kernel_regularizer']:
-        #         if hasattr(layer, attr):
-        #             setattr(layer, attr, regularizer)
+            # set layers untrainable
+            for layer in training_layers:
+                layer.trainable = True
+                # print(layer, layer.trainable)
+                for attr in ['kernel_regularizer']:
+                    if hasattr(layer, attr):
+                        setattr(layer, attr, regularizer)
+        else:
+            # set layers untrainable
+            for layer in model.layers:
+                layer.trainable = True
+                # print(layer, layer.trainable)
+                for attr in ['kernel_regularizer']:
+                    if hasattr(layer, attr):
+                        setattr(layer, attr, regularizer)
 
 
         model.get_layer(layer_name).activation = activations.linear
@@ -191,7 +196,7 @@ class NetVladResnet(NetVLADSiameseModel):
 
         regularizer = tf.keras.regularizers.l2(0.001)
 
-        for layer in model.layers[-60:]:
+        for layer in model.layers[-50:]:
             layer.trainable = True
             for attr in ['kernel_regularizer']:
                 if hasattr(layer, attr):

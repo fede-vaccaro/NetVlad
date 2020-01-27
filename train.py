@@ -28,7 +28,7 @@ import tensorflow as tf
 import keras
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 # gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 # for device in gpu_devices:
@@ -44,13 +44,12 @@ ap.add_argument("-t", "--test", action='store_true',
 args = vars(ap.parse_args())
 
 mining_batch_size = 2048
-minibatch_size = 24
+minibatch_size = 6
 epochs = 160
 
 # my_model = NetVladResnet()
 
 my_model = NetVLADSiameseModel()
-
 index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
 files = [paths.mirflickr_path + k for k in list(index.keys())]
 
@@ -91,20 +90,22 @@ if train_kmeans:
     del all_descs
     gc.collect()
 
-def lr_warmup(it):
-    min_lr = 1e-6
-    max_lr = 1e-5
-    break_epoch = 50
-    break_epoch_2 = 100
+def lr_warmup(it, min_lr=1e-6, max_lr=1e-5, wu_epoch=50, decay_epoch=100, decay=False):
+    # min_lr = 1e-6
+    # max_lr = 1e-5
+    break_epoch = wu_epoch
+    break_epoch_2 = decay_epoch
     break_iteration = steps_per_epoch * break_epoch
     break_iteration_2 = steps_per_epoch * (break_epoch_2 - break_epoch)
     if e < break_epoch:
         lr = max_lr * it / break_iteration + min_lr * (1. - it / break_iteration)
-    elif e < break_epoch_2:
+    elif e < break_epoch_2 and decay:
         it = it - break_iteration
         lr = min_lr * it / break_iteration_2 + max_lr * (1. - it / break_iteration_2)
-    else:
+    elif decay:
         lr = min_lr / (1 + 2e-4 * (it - steps_per_epoch * break_epoch_2))
+    else:
+        lr = max_lr
 
     return lr
 
@@ -130,21 +131,21 @@ if train:
         # K.set_value(vgg_netvlad.optimizer.lr, 1e-6)
 
 
-        # new layers to train
-        model = vgg_netvlad.get_layer('model_3')
-        training_layers = [
-            model.get_layer('block4_conv1'),
-            model.get_layer('block4_conv2'),
-            model.get_layer('block4_conv3'),
-        ]
-
-        # set layers untrainable
-        for layer in training_layers:
-            layer.trainable = True
-            # print(layer, layer.trainable)
-            for attr in ['kernel_regularizer']:
-                if hasattr(layer, attr):
-                    setattr(layer, attr, my_model.regularizer)
+        # # new layers to train
+        # model = vgg_netvlad.get_layer('model_3')
+        # training_layers = [
+        #     model.get_layer('block4_conv1'),
+        #     model.get_layer('block4_conv2'),
+        #     model.get_layer('block4_conv3'),
+        # ]
+        #
+        # # set layers untrainable
+        # for layer in model.layers:
+        #     layer.trainable = True
+        #     # print(layer, layer.trainable)
+        #     for attr in ['kernel_regularizer']:
+        #         if hasattr(layer, attr):
+        #             setattr(layer, attr, my_model.regularizer)
 
         vgg_netvlad.summary()
 
@@ -163,7 +164,7 @@ if train:
 
     train_generator = landmark_generator.generator()
 
-    test_generator = my_utils.evaluation_triplet_generator(paths.path_oxford_by_queries,#paths.holidays_small_labeled_path,
+    test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
                                                            model=my_model.get_netvlad_extractor(),
                                                            netbatch_size=minibatch_size)
 
@@ -173,7 +174,7 @@ if train:
     not_improving_counter = 0
     not_improving_thresh = 15
 
-    description = "vgg-adam-wu-block4-block5"
+    description = "vgg-adam-continuation"
 
     val_loss_e = []
 
@@ -197,9 +198,11 @@ if train:
             # lr = cyclic.clr()
             # cyclic.clr_iterations = it
 
-            lr = clr.cosine_decay_with_warmup(total_steps=epochs * steps_per_epoch, global_step=it,
-                                              learning_rate_base=1.e-5,
-                                              warmup_steps=2000, warmup_learning_rate=1e-6)
+            # lr = clr.cosine_decay_with_warmup(total_steps=epochs * steps_per_epoch, global_step=it,
+            #                                  learning_rate_base=1.e-5,
+            #                                  warmup_steps=2000, warmup_learning_rate=1e-6)
+
+            lr = 1e-6
 
             K.set_value(vgg_netvlad.optimizer.lr, lr)
 
@@ -327,47 +330,34 @@ query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] ==
 # check that everything is fine - expected output: "tot images = 1491, query images = 500"
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
+base_resolution = (336, 336, 3)
+
+input_shape_1 = (768, 768, 3)
+input_shape_2 = (504, 504, 3)
+input_shape_3 = (224, 224, 3)
+
+input_shapes = [input_shape_1, input_shape_2, input_shape_3]
+
 print("Loading images")
-img_dict = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), rotate=True)
-
-img_tensor = [img_dict[key] for key in img_dict]
-img_tensor = np.array(img_tensor)
-
+img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=base_resolution, rotate=True)
 print("Extracting features")
 all_feats = vgg_netvlad.predict(img_tensor, verbose=1)
 
-if pca_from_landmarks and use_pca:
-    print("Training PCA")
-    all_feats = pca.transform(all_feats)
-elif use_pca:
-    print("Training PCA")
+for shape in input_shapes:
+    img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=shape,
+                                       rotate=True)
+    batch_size = 32
+    if shape[0] == 768:
+        batch_size = 16
 
-    pca = PCA(512, whiten=False)
-    dataset = h5py.File("pca.h5", 'r')
-    components = dataset['components'][:]
-    mean = dataset['mean'][:]
-    explained_variance = dataset['explained_variance'][:]
-    pca.components_ = components
-    pca.mean_ = mean
-    pca.explained_variance_ = explained_variance
+    all_feats += vgg_netvlad.predict(img_tensor, verbose=1, batch_size=batch_size)
 
-    all_feats = pca.transform(all_feats)
-
-    # pca.fit(all_feats)
-
-    # all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
-
-all_feats_sign = np.sign(all_feats)
-all_feats = np.power(np.abs(all_feats), 0.5)
-all_feats = np.multiply(all_feats, all_feats_sign)
+if power_norm:
+    all_feats_sign = np.sign(all_feats)
+    all_feats = np.power(np.abs(all_feats), 0.5)
+    all_feats = np.multiply(all_feats, all_feats_sign)
+    
 all_feats = normalize(all_feats)
-
-# all_feats = all_feats[:, n_queries:]
-
-# plt.imshow(all_feats, cmap='viridis')
-# plt.colorbar()
-# plt.grid(False)
-# plt.show()
 
 query_feats = all_feats[query_imids]
 
@@ -377,5 +367,3 @@ distances, indices = nbrs.kneighbors(query_feats)
 print('mean AP = %.3f' % hth.mAP(query_imids, indices, imnames=imnames))
 perfect_result = hth.make_perfect_holidays_result(imnames, query_imids)
 print('Perfect mean AP = %.3f' % hth.mAP(query_imids, perfect_result, imnames=imnames))
-
-# hth.show_result(indices, nqueries=200)
