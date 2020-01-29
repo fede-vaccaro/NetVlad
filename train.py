@@ -37,7 +37,7 @@ ap.add_argument("-s", "--start-epoch", type=int, default=0,
 ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
                 help="Yaml file where the configuration is stored")
 ap.add_argument("-t", "--test", action='store_true',
-                help="If must be bypassed the training for testing")
+                help="If the training be bypassed for testing")
 ap.add_argument("-k", "--kmeans", action='store_true',
                 help="If netvlad weights should be initialized for testing")
 ap.add_argument("-d", "--device", type=str, default="0",
@@ -84,10 +84,10 @@ rotate_holidays = conf['rotate_holidays']
 use_power_norm = conf['use_power_norm']
 use_multi_resolution = conf['use_multi_resolution']
 
-if test:
-    gpu_devices = tf.config.experimental.list_physical_devices('GPU')
-    for device in gpu_devices:
-        tf.config.experimental.set_memory_growth(device, True)
+# if test:
+#     gpu_devices = tf.config.experimental.list_physical_devices('GPU')
+#     for device in gpu_devices:
+#         tf.config.experimental.set_memory_growth(device, True)
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
@@ -108,7 +108,6 @@ vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=160)
 vgg_netvlad = my_model.build_netvladmodel()
 vgg_netvlad.summary()
-quit()
 
 print("Netvlad output shape: ", vgg_netvlad.output_shape)
 print("Feature extractor output shape: ", vgg.output_shape)
@@ -206,7 +205,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = lr_warmup(it, wu_steps=warm_up_steps)
+                lr = lr_warmup(it, min_lr=max_lr*0.1, max_lr=max_lr, wu_steps=warm_up_steps)
             else:
                 lr = max_lr
 

@@ -226,7 +226,7 @@ class NetVladResnet(NetVLADSiameseModel):
 
         self.regularizer = tf.keras.regularizers.l2(0.001)
 
-        for layer in model.layers[-50:]:
+        for layer in model.layers:
             layer.trainable = True
             for attr in ['kernel_regularizer']:
                 if hasattr(layer, attr):
