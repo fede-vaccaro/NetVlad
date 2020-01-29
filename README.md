@@ -17,20 +17,20 @@
 ```
 # architecture
 network:
-  name: resnet # vgg or resnet
-  output_layer: add_16 # block5_conv2 for vgg or bn5c_branch2a/add_16 for resnet
-  n_clusters: 32
+  name: vgg # vgg or resnet
+  output_layer: block5_conv2 # block5_conv2 for vgg or bn5c_branch2a/add_16 for resnet
+  n_clusters: 64
   middle_pca:
-    active: true
+    active: false
     dim: 512
     pretrain: true
 
 # training
-description: "resnet_test"
-mining_batch_size: 1024
+description: "vgg_test"
+mining_batch_size: 2048
 minibatch_size: 6
-steps_per_epoch: 50
-n_epochs: 10
+steps_per_epoch: 400
+n_epochs: 160
 lr:
   warm-up: true
   warm-up-steps: 2000 # if warm-up is active
