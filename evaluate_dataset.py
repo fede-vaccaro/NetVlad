@@ -18,11 +18,35 @@ from keras.preprocessing.image import ImageDataGenerator
 import math
 import paths
 
+ap = argparse.ArgumentParser()
+
+conf_file = open(config_file, 'r')
+conf = dict(yaml.safe_load(conf_file))
+conf_file.close()
+
+ap.add_argument("-m", "--model", type=str,
+                help="path to *specific* model checkpoint to load")
+ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
+                help="Yaml file where the configuration is stored")
+ap.add_argument("-d", "--device", type=str, default="0",
+                help="CUDA device to be used. For info type '$ nvidia-smi'")
+args = vars(ap.parse_args())
+
+model_name = args['model']
+config_file = args['configuration']
+cuda_device = args['device']
+
+use_power_norm = conf['use_power_norm']
+use_multi_resolution = conf['use_multi_resolution']
+
+
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
+
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+
 
 def main():
     print("Loading image dict")
@@ -37,13 +61,19 @@ def main():
         path = path_oxford
         # path = path_paris
 
-    my_model = NetVLADSiameseModel()
-    # my_model = NetVladResnet()
-    vgg_netvlad = my_model.build_netvladmodel()
+    network_conf = conf['network']
+    net_name = network_conf['name']
 
-    # weight_name = "model_e134_vgg-adam-continuation_0.0704_checkpoint.h5
-    # weight_name = "model_e269_vgg-adam-continuation_0.0690_checkpoint.h5"
-    weight_name = "model_e160_vgg-middle-pca_.h5"
+    my_model = None
+    if net_name == "vgg":
+        my_model = NetVLADSiameseModel(**network_conf)
+    elif net_name == "resnet":
+        my_model = NetVladResnet(**network_conf)
+    else:
+        print("Network name not valid.")
+
+    vgg_netvlad = my_model.build_netvladmodel()
+    weight_name = model_name
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
@@ -66,11 +96,10 @@ def main():
                                       shuffle=False, interpolation='bilinear')
     print("Computing descriptors")
     img_list = [os.path.splitext(os.path.split(f)[1])[0] for f in gen.filenames]
-    n_steps = math.ceil(len(img_list)/batch_size)
+    n_steps = math.ceil(len(img_list) / batch_size)
     all_feats = vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1)
 
-    multi_resolution = False
-    if multi_resolution:
+    if use_multi_resolution:
         for shape in input_shapes:
             print("Loading images at shape: {}".format(shape))
             gen = datagen.flow_from_directory(path, target_size=(shape[0], shape[1]),
@@ -100,7 +129,6 @@ def main():
 
             all_feats = pca.transform(all_feats)
 
-    use_power_norm = True
     if use_power_norm:
         all_feats_sign = np.sign(all_feats)
         all_feats = np.power(np.abs(all_feats), 0.5)
