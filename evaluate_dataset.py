@@ -42,8 +42,8 @@ def main():
     vgg_netvlad = my_model.build_netvladmodel()
 
     # weight_name = "model_e134_vgg-adam-continuation_0.0704_checkpoint.h5
-    weight_name = "model_e269_vgg-adam-continuation_0.0690_checkpoint.h5"
-
+    # weight_name = "model_e269_vgg-adam-continuation_0.0690_checkpoint.h5"
+    weight_name = "model_e160_vgg-middle-pca_.h5"
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()

@@ -14,6 +14,8 @@ from keras import layers
 # from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
 # input_shape = (224, 224, 3)
 input_shape = (336, 336, 3)
+
+
 # input_shape = (None, None, 3)
 
 
@@ -21,14 +23,17 @@ input_shape = (336, 336, 3)
 
 
 class NetVLADSiameseModel:
-    def __init__(self, layer_name='block5_conv2'):
+    def __init__(self, **kwargs):
         model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
-        # model = VGG16_Places365(weights='places', include_top=False, pooling='avg', input_shape=input_shape)
 
-        regularizer = tf.keras.regularizers.l2(0.001)
-        self.regularizer = regularizer
+        self.output_layer = kwargs['output_layer']
+        self.n_cluster = kwargs['n_clusters']
+        self.middle_pca = kwargs['middle_pca']
+        self.output_layer = kwargs['output_layer']
+
+        self.regularizer = tf.keras.regularizers.l2(0.001)
+
         few_layers = False
-
         if few_layers:
             for layer in model.layers:
                 layer.trainable = False
@@ -48,7 +53,7 @@ class NetVLADSiameseModel:
                 # print(layer, layer.trainable)
                 for attr in ['kernel_regularizer']:
                     if hasattr(layer, attr):
-                        setattr(layer, attr, regularizer)
+                        setattr(layer, attr, self.regularizer)
         else:
             # set layers untrainable
             for layer in model.layers:
@@ -56,18 +61,24 @@ class NetVLADSiameseModel:
                 # print(layer, layer.trainable)
                 for attr in ['kernel_regularizer']:
                     if hasattr(layer, attr):
-                        setattr(layer, attr, regularizer)
+                        setattr(layer, attr, self.regularizer)
 
-
-        model.get_layer(layer_name).activation = activations.linear
+        model.get_layer(self.output_layer).activation = activations.linear
         model = vis.utils.utils.apply_modifications(model)
 
-        # channel_red = Conv2D(256, 1)
-        # out = channel_red(model.get_layer(layer_name).output)
-        out = model.get_layer(layer_name).output
+        self.n_filters = None
+        self.base_model = None
+        self.siamese_model = None
+        self.images_input = None
+        self.filter_l = None  # useless, just for compatibility with netvlad implementation
 
-        self.n_filters = 512
-        self.n_cluster = 64
+        self.build_base_model(model)
+
+    def build_base_model(self, backbone):
+        backbone.summary()
+        out = backbone.get_layer(self.output_layer).output
+        print(out.shape)
+        self.n_filters = out.shape[3]
 
         pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
@@ -77,21 +88,17 @@ class NetVLADSiameseModel:
         pool_2_reshaped = Reshape((-1, self.n_filters))(pool_2)
 
         out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
-
-        self.backbone = model
-        self.base_model = Model(model.input, out)
-
-        self.layer_name = layer_name
-        self.vgg_netvlad = None
+        self.base_model = Model(backbone.input, out)
+        self.siamese_model = None
         self.images_input = None
-        self.filter_l = 14
+        self.filter_l = None  # useless, just for compatibility with netvlad implementation
 
     def get_feature_extractor(self, verbose=False):
-        vgg = self.base_model
-        vgg = Model(vgg.input, vgg.output)
+        net = self.base_model
+        net = Model(net.input, net.output)
         if verbose:
-            vgg.summary()
-        return vgg, vgg.output_shape
+            net.summary()
+        return net, net.output_shape
 
     def get_pooled_feature_extractor(self):
         self.images_input = Input(shape=input_shape)
@@ -105,24 +112,27 @@ class NetVLADSiameseModel:
 
         return Model(inputs=self.images_input, output=flatten)
 
-    def build_netvladmodel(self, kmeans=None, pca=None):
+    def build_netvladmodel(self, kmeans=None):
         self.images_input = Input(shape=input_shape)
 
         self.anchor = Input(shape=input_shape)
         self.positive = Input(shape=input_shape)
         self.negative = Input(shape=input_shape)
 
-        filter_l = self.filter_l
-
         l2normalization = L2NormLayer()(self.base_model.output)
-        ### pca here
-        pca = layers.Dense(256, kernel_regularizer=self.regularizer)
 
-        self.pca = pca
-        pca = pca(l2normalization)
-        l2normalization = L2NormLayer()(pca)
+        feature_size = self.n_filters
 
-        netvlad = NetVLAD(feature_size=256, max_samples=filter_l ** 2, cluster_size=self.n_cluster)
+        if self.middle_pca['active']:
+            compression_dim = self.middle_pca['dim']
+            pca = layers.Dense(compression_dim, kernel_regularizer=self.regularizer)
+            self.pca = pca
+            pca = pca(l2normalization)
+            l2normalization = L2NormLayer()(pca)
+            feature_size = compression_dim
+
+        netvlad = NetVLAD(feature_size=feature_size, max_samples=0,
+                          cluster_size=self.n_cluster)  # max samples is useless
         self.netvlad = netvlad
         netvlad = netvlad(l2normalization)
 
@@ -132,20 +142,28 @@ class NetVLADSiameseModel:
         if kmeans is not None and pca is not None:
             self.set_netvlad_weights(kmeans, pca)
 
-        vgg_netvlad = self.get_siamese_network()
-
-        self.vgg_netvlad = vgg_netvlad
-        return self.vgg_netvlad
+        self.siamese_model = self.get_siamese_network()
+        return self.siamese_model
 
     def get_siamese_network(self):
         netvlad_a = self.netvlad_base([self.anchor])
         netvlad_p = self.netvlad_base([self.positive])
         netvlad_n = self.netvlad_base([self.negative])
-        vgg_netvlad = Model(inputs=[self.anchor, self.positive, self.negative],
-                            outputs=[netvlad_a, netvlad_p, netvlad_n])
-        return vgg_netvlad
+        siamese_model = Model(inputs=[self.anchor, self.positive, self.negative],
+                              outputs=[netvlad_a, netvlad_p, netvlad_n])
+        return siamese_model
 
-    def set_netvlad_weights(self, kmeans, pca):
+    def set_mid_pca_weights(self, pca):
+        if self.middle_pca['active']:
+            mean_ = pca.mean_
+            components_ = pca.components_
+
+            mean_ = -np.dot(mean_, components_.T)
+            self.pca.set_weights([components_.T, mean_])
+        else:
+            print("WARNING mid pca is not active")
+
+    def set_netvlad_weights(self, kmeans):
         netvlad_ = self.netvlad
         weights_netvlad = netvlad_.get_weights()
         # %%
@@ -169,15 +187,7 @@ class NetVLADSiameseModel:
 
         netvlad_.set_weights(weights_netvlad)
 
-        ## set pca weights
-        mean_ = pca.mean_
-        components_ = pca.components_
-
-        mean_ = -np.dot(mean_, components_.T)
-        self.pca.set_weights([components_.T, mean_])
-
     def get_netvlad_extractor(self):
-        # return Model(inputs=self.images_input, outputs=self.netvlad)
         return self.netvlad_base
 
 
@@ -199,44 +209,33 @@ class NetVLADSiameseModel:
 
 
 class NetVladResnet(NetVLADSiameseModel):
-    def __init__(self, layer_name='bn5c_branch2a'):
+    def __init__(self, **kwargs):
         model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape, layers=tf.keras.layers)
+
+        self.output_layer = kwargs['output_layer']
+        self.n_cluster = kwargs['n_clusters']
+        self.middle_pca = kwargs['middle_pca']
+        self.output_layer = kwargs['output_layer']
+
+        self.regularizer = tf.keras.regularizers.l2(0.001)
+
         # set layers untrainable
         for layer in model.layers:
             if type(layer) is not type(layers.BatchNormalization()):
                 layer.trainable = False
 
-        regularizer = tf.keras.regularizers.l2(0.001)
+        self.regularizer = tf.keras.regularizers.l2(0.001)
 
         for layer in model.layers[-50:]:
             layer.trainable = True
             for attr in ['kernel_regularizer']:
                 if hasattr(layer, attr):
-                    setattr(layer, attr, regularizer)
+                    setattr(layer, attr, self.regularizer)
 
-        model.summary()
-
-        self.n_filters = 512
-        self.n_cluster = 64
-
-        out = model.get_layer(layer_name).output
-
-        pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
-        pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
-
-        out_reshaped = Reshape((-1, self.n_filters))(out)
-        pool_1_reshaped = Reshape((-1, self.n_filters))(pool_1)
-        pool_2_reshaped = Reshape((-1, self.n_filters))(pool_2)
-
-        out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
-
-        self.backbone = model
-        self.base_model = Model(model.input, out)
-
-        # self.base_model.summary()
-
-        self.layer_name = layer_name
-        self.vgg_netvlad = None
+        self.n_filters = None
+        self.base_model = None
+        self.siamese_model = None
         self.images_input = None
-        self.filter_l = 7
-        self.netvlad_output = self.n_filters * 32
+        self.filter_l = None  # useless, just for compatibility with netvlad implementation
+
+        self.build_base_model(model)
