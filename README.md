@@ -1,6 +1,6 @@
 # Image Retrieval using Local CNN Features Pooling
 
-#### Optional arguments:
+#### Optional arguments to `$ python train.py`:
 *  -h, --help            show this help message and exit
 *  -m MODEL, --model MODEL
                         path to *specific* model checkpoint to load
