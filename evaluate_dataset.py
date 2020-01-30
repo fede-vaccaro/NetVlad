@@ -17,12 +17,10 @@ from tqdm import tqdm
 from keras.preprocessing.image import ImageDataGenerator
 import math
 import paths
-
+import argparse
+import yaml
 ap = argparse.ArgumentParser()
 
-conf_file = open(config_file, 'r')
-conf = dict(yaml.safe_load(conf_file))
-conf_file.close()
 
 ap.add_argument("-m", "--model", type=str,
                 help="path to *specific* model checkpoint to load")
@@ -36,9 +34,12 @@ model_name = args['model']
 config_file = args['configuration']
 cuda_device = args['device']
 
+conf_file = open(config_file, 'r')
+conf = dict(yaml.safe_load(conf_file))
+conf_file.close()
+
 use_power_norm = conf['use_power_norm']
 use_multi_resolution = conf['use_multi_resolution']
-
 
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
