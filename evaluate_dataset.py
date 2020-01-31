@@ -8,8 +8,7 @@ import numpy as np
 from PIL import Image
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
-from netvlad_model import NetVLADSiameseModel, NetVladResnet  # , NetVLADModelRetinaNet
-from netvlad_model import input_shape
+import netvlad_model as nm
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
@@ -40,6 +39,11 @@ conf_file.close()
 
 use_power_norm = conf['use_power_norm']
 use_multi_resolution = conf['use_multi_resolution']
+side_res = conf['input-shape']
+
+nm.NetVladBase.input_shape = (side_res, side_res, 3)
+if use_multi_resolution:
+    nm.NetVladBase.input_shape = (None, None, 3)
 
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
@@ -67,9 +71,9 @@ def main():
 
     my_model = None
     if net_name == "vgg":
-        my_model = NetVLADSiameseModel(**network_conf)
+        my_model = nm.NetVLADSiameseModel(**network_conf)
     elif net_name == "resnet":
-        my_model = NetVladResnet(**network_conf)
+        my_model = nm.NetVladResnet(**network_conf)
     else:
         print("Network name not valid.")
 

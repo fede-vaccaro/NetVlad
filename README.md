@@ -36,6 +36,7 @@ lr:
   warm-up-steps: 2000 # if warm-up is active
   max_value: 1e-5
 # min_value: max_value*0.1 by default
+input-shape: 336
 
 # testing
 rotate_holidays: true

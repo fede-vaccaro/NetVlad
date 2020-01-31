@@ -2,29 +2,22 @@ import numpy as np
 import tensorflow as tf
 import vis.utils.utils
 from keras import activations
+from keras import layers
 from keras.applications import VGG16, ResNet50
 from keras.layers import Input, Reshape, concatenate, MaxPool2D
 from keras.models import Model
 
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
-import tensorflow as tf
-from keras import layers
-
-# from keras_vgg16_place.vgg16_places_365 import VGG16_Places365
-# input_shape = (224, 224, 3)
-input_shape = (336, 336, 3)
 
 
-# input_shape = (None, None, 3)
+class NetVladBase:
+    input_shape = (336, 336, 3)
 
 
-# vgg = VGG16(weights='imagenet', include_top=False, pooling=False, input_shape=input_shape)
-
-
-class NetVLADSiameseModel:
+class NetVLADSiameseModel(NetVladBase):
     def __init__(self, **kwargs):
-        model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=input_shape)
+        model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=self.input_shape)
 
         self.output_layer = kwargs['output_layer']
         self.n_cluster = kwargs['n_clusters']
@@ -101,7 +94,7 @@ class NetVLADSiameseModel:
         return net, net.output_shape
 
     def get_pooled_feature_extractor(self):
-        self.images_input = Input(shape=input_shape)
+        self.images_input = Input(shape=self.input_shape)
         from keras.layers import AvgPool2D, Flatten
 
         filter_w = self.base_model.output_shape[1]
@@ -113,11 +106,11 @@ class NetVLADSiameseModel:
         return Model(inputs=self.images_input, output=flatten)
 
     def build_netvladmodel(self, kmeans=None):
-        self.images_input = Input(shape=input_shape)
+        self.images_input = Input(shape=self.input_shape)
 
-        self.anchor = Input(shape=input_shape)
-        self.positive = Input(shape=input_shape)
-        self.negative = Input(shape=input_shape)
+        self.anchor = Input(shape=self.input_shape)
+        self.positive = Input(shape=self.input_shape)
+        self.negative = Input(shape=self.input_shape)
 
         l2normalization = L2NormLayer()(self.base_model.output)
 
@@ -139,8 +132,8 @@ class NetVLADSiameseModel:
         netvlad_base = Model(self.base_model.input, netvlad)
         self.netvlad_base = netvlad_base
 
-        if kmeans is not None and pca is not None:
-            self.set_netvlad_weights(kmeans, pca)
+        if kmeans is not None:
+            self.set_netvlad_weights(kmeans)
 
         self.siamese_model = self.get_siamese_network()
         return self.siamese_model
@@ -210,7 +203,7 @@ class NetVLADSiameseModel:
 
 class NetVladResnet(NetVLADSiameseModel):
     def __init__(self, **kwargs):
-        model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape, layers=tf.keras.layers)
+        model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape, layers=tf.keras.layers)
 
         self.output_layer = kwargs['output_layer']
         self.n_cluster = kwargs['n_clusters']

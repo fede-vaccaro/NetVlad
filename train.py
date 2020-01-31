@@ -15,7 +15,7 @@ import paths
 from keras import Model, optimizers
 from keras import backend as K
 from keras import layers, regularizers
-from netvlad_model import NetVLADSiameseModel, input_shape, NetVladResnet
+import netvlad_model
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
@@ -84,6 +84,12 @@ rotate_holidays = conf['rotate_holidays']
 use_power_norm = conf['use_power_norm']
 use_multi_resolution = conf['use_multi_resolution']
 
+side_res = conf['input-shape']
+
+netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
+if use_multi_resolution:
+    netvlad_model.NetVladBase.input_shape = (None, None, 3)
+
 # if test:
 #     gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 #     for device in gpu_devices:
@@ -94,9 +100,9 @@ os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
 my_model = None
 if net_name == "vgg":
-    my_model = NetVLADSiameseModel(**network_conf)
+    my_model = netvlad_model.NetVLADSiameseModel(**network_conf)
 elif net_name == "resnet":
-    my_model = NetVladResnet(**network_conf)
+    my_model = netvlad_model.NetVladResnet(**network_conf)
 else:
     print("Network name not valid.")
 
@@ -282,7 +288,7 @@ if train:
     # plt.show()
 
 print("Testing model")
-print("Input shape: ", input_shape)
+print("Input shape: ", netvlad_model.NetVladBase.input_shape)
 
 if test and model_name is not None:
     print("Loading ", model_name)

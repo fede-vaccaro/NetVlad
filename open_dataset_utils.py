@@ -13,8 +13,7 @@ from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
-
-from netvlad_model import input_shape
+import netvlad_model as nm
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -24,7 +23,7 @@ def get_txtlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.txt')]
 
 
-def open_img(path, input_shape=input_shape):
+def open_img(path, input_shape=nm.NetVladBase.input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
     # img = (image.img_to_array(img) - 127.5) / 127.5
     img = preprocess_input(image.img_to_array(img))
@@ -33,7 +32,7 @@ def open_img(path, input_shape=input_shape):
     return img, img_id
 
 
-def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=input_shape, augmentation=False):
+def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=nm.NetVladBase.input_shape, augmentation=False):
     train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
                                        width_shift_range=0.4,
                                        height_shift_range=0.4,
@@ -157,7 +156,7 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=None, train
         # This is the target directory
         train_dir,
         # All images will be resized to 150x150
-        target_size=(input_shape[0], input_shape[1]),
+        target_size=(nm.NetVladBase.input_shape[0], nm.NetVladBase.input_shape[1]),
         batch_size=batch_size,
         # Since we use binary_crossentropy loss, we need binary labels
         class_mode='categorical', shuffle=False)
@@ -232,7 +231,7 @@ class Loader(threading.Thread):
             # load the images
             # print("Opening the images (producer thread)")
             for im, index, dir in imgs:
-                image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
+                image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=nm.NetVladBase.input_shape)
                 label = index
                 images_array.append(image)
                 label_array.append(label)
@@ -398,7 +397,7 @@ def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
     # load the images
     print("Opening the images (evaluation)")
     for im, index, dir in imgs:
-        image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=input_shape)
+        image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=nm.NetVladBase.input_shape)
         label = index
         images_array.append(image)
         label_array.append(label)

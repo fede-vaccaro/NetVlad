@@ -9,8 +9,6 @@ from keras.preprocessing import image
 import yaml
 
 import paths
-from netvlad_model import input_shape
-
 
 def get_imlist_(path="holidays_small_2"):
     imnames = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -23,7 +21,7 @@ def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
 
-def create_image_dict(img_list, input_shape=input_shape, preprocess_input=preprocess_input, rotate=False):
+def create_image_dict(img_list, input_shape, preprocess_input=preprocess_input, rotate=False):
     # input_shape = (224, 224, 3)
     tensor = {}
 
