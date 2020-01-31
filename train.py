@@ -237,7 +237,6 @@ if train:
             K.set_value(vgg_netvlad.optimizer.lr, lr)
 
             x, y = next(train_generator)
-            # print("Starting training at epoch ", e)
             loss_s = vgg_netvlad.train_on_batch(x, None)
             losses_e.append(loss_s)
 
