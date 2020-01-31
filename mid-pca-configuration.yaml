@@ -15,9 +15,9 @@ minibatch_size: 6
 steps_per_epoch: 400
 n_epochs: 160
 lr:
-  warm-up: true
+  warm-up: false
   warm-up-steps: 2000 # if warm-up is active
-  max_value: 1e-5
+  max_value: 1e-6
 # min_value: max_value*0.1 by default
 
 # testing
