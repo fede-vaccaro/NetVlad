@@ -28,8 +28,8 @@ def get_txtlist(path):
 
 def open_img(path, input_shape=nm.NetVladBase.input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
-    img = (image.img_to_array(img) - 127.5) / 127.5
-    # img = preprocess_input(image.img_to_array(img))
+    # img = (image.img_to_array(img) - 127.5) / 127.5
+    img = preprocess_input(image.img_to_array(img))
     img_id = path.split('/')[-1]
 
     return img, img_id

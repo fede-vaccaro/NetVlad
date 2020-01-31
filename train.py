@@ -234,7 +234,7 @@ if train:
 
             x, y = next(train_generator)
             # print("Starting training at epoch ", e)
-            loss_s = vgg_netvlad.train_on_batch(x, y)
+            loss_s = vgg_netvlad.train_on_batch(x, None)
             losses_e.append(loss_s)
 
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
