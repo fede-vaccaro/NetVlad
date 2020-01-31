@@ -525,7 +525,7 @@ def show_triplet(triplet):
 
 
 def main():
-    conf_file = open('best-model-conf.yaml', 'r')
+    conf_file = open('resnet-conf.yaml', 'r')
     conf = dict(yaml.safe_load(conf_file))
     conf_file.close()
 

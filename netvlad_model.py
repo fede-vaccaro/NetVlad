@@ -13,59 +13,16 @@ from triplet_loss import L2NormLayer
 
 class NetVladBase:
     input_shape = (336, 336, 3)
-
-
-class NetVLADSiameseModel(NetVladBase):
     def __init__(self, **kwargs):
-        model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=self.input_shape)
-
         self.output_layer = kwargs['output_layer']
         self.n_cluster = kwargs['n_clusters']
         self.middle_pca = kwargs['middle_pca']
         self.output_layer = kwargs['output_layer']
 
+        self.poolings = kwargs['poolings']
+        self.feature_compression = kwargs['pooling_feature_compression']
+
         self.regularizer = tf.keras.regularizers.l2(0.001)
-
-        few_layers = False
-        if few_layers:
-            for layer in model.layers:
-                layer.trainable = False
-
-            training_layers = [
-                model.get_layer('block5_conv1'),
-                model.get_layer('block5_conv2'),
-
-                model.get_layer('block4_conv1'),
-                model.get_layer('block4_conv2'),
-                model.get_layer('block4_conv3'),
-            ]
-
-            # set layers untrainable
-            for layer in training_layers:
-                layer.trainable = True
-                # print(layer, layer.trainable)
-                for attr in ['kernel_regularizer']:
-                    if hasattr(layer, attr):
-                        setattr(layer, attr, self.regularizer)
-        else:
-            # set layers untrainable
-            for layer in model.layers:
-                layer.trainable = True
-                # print(layer, layer.trainable)
-                for attr in ['kernel_regularizer']:
-                    if hasattr(layer, attr):
-                        setattr(layer, attr, self.regularizer)
-
-        model.get_layer(self.output_layer).activation = activations.linear
-        model = vis.utils.utils.apply_modifications(model)
-
-        self.n_filters = None
-        self.base_model = None
-        self.siamese_model = None
-        self.images_input = None
-        self.filter_l = None  # useless, just for compatibility with netvlad implementation
-
-        self.build_base_model(model)
 
     def build_base_model(self, backbone):
         backbone.summary()
@@ -73,12 +30,24 @@ class NetVLADSiameseModel(NetVladBase):
         print(out.shape)
         self.n_filters = out.shape[3]
 
-        pool_1 = MaxPool2D(pool_size=2, strides=1, padding='valid')(out)
-        pool_2 = MaxPool2D(pool_size=3, strides=1, padding='valid')(out)
+        pool_1 = MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
+        pool_2 = MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
 
         out_reshaped = Reshape((-1, self.n_filters))(out)
         pool_1_reshaped = Reshape((-1, self.n_filters))(pool_1)
         pool_2_reshaped = Reshape((-1, self.n_filters))(pool_2)
+
+        if self.feature_compression['active']:
+            feature_compression_pool_size = self.feature_compression['pool_size']
+            feature_compression_strides = self.feature_compression['stride']
+
+            max_pool_1d_1 = layers.AvgPool1D(pool_size=feature_compression_pool_size, strides=feature_compression_strides, data_format='channels_first')
+            max_pool_1d_2 = layers.AvgPool1D(pool_size=feature_compression_pool_size, strides=feature_compression_strides, data_format='channels_first')
+
+            pool_1_reshaped = max_pool_1d_1(pool_1_reshaped)
+            pool_2_reshaped = max_pool_1d_2(pool_2_reshaped)
+
+            self.n_filters = pool_2_reshaped.shape[2]
 
         out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
         self.base_model = Model(backbone.input, out)
@@ -184,6 +153,53 @@ class NetVLADSiameseModel(NetVladBase):
         return self.netvlad_base
 
 
+class NetVLADSiameseModel(NetVladBase):
+    def __init__(self, **kwargs):
+        model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=self.input_shape)
+        super(NetVLADSiameseModel, self).__init__(**kwargs)
+
+        few_layers = False
+        if few_layers:
+            for layer in model.layers:
+                layer.trainable = False
+
+            training_layers = [
+                model.get_layer('block5_conv1'),
+                model.get_layer('block5_conv2'),
+
+                model.get_layer('block4_conv1'),
+                model.get_layer('block4_conv2'),
+                model.get_layer('block4_conv3'),
+            ]
+
+            # set layers untrainable
+            for layer in training_layers:
+                layer.trainable = True
+                # print(layer, layer.trainable)
+                for attr in ['kernel_regularizer']:
+                    if hasattr(layer, attr):
+                        setattr(layer, attr, self.regularizer)
+        else:
+            # set layers untrainable
+            for layer in model.layers:
+                layer.trainable = True
+                # print(layer, layer.trainable)
+                for attr in ['kernel_regularizer']:
+                    if hasattr(layer, attr):
+                        setattr(layer, attr, self.regularizer)
+
+        model.get_layer(self.output_layer).activation = activations.linear
+        model = vis.utils.utils.apply_modifications(model)
+
+        self.n_filters = None
+        self.base_model = None
+        self.siamese_model = None
+        self.images_input = None
+        self.filter_l = None  # useless, just for compatibility with netvlad implementation
+
+        self.build_base_model(model)
+
+
 # 'res4e_branch2a' x 80~
 # res4a_branch2a x 77
 # res4a_branch2b x 738
@@ -201,16 +217,11 @@ class NetVLADSiameseModel(NetVladBase):
 # add_16 2048 -> 512 -> 64 cluter 85.0
 
 
-class NetVladResnet(NetVLADSiameseModel):
+class NetVladResnet(NetVladBase):
     def __init__(self, **kwargs):
+        super(NetVladResnet, self).__init__(**kwargs)
+
         model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape, layers=tf.keras.layers)
-
-        self.output_layer = kwargs['output_layer']
-        self.n_cluster = kwargs['n_clusters']
-        self.middle_pca = kwargs['middle_pca']
-        self.output_layer = kwargs['output_layer']
-
-        self.regularizer = tf.keras.regularizers.l2(0.001)
 
         # set layers untrainable
         for layer in model.layers:

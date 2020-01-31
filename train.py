@@ -11,6 +11,8 @@ import numpy as np
 import yaml
 from keras import Model, optimizers
 from keras import backend as K
+from keras.applications.vgg16 import preprocess_input
+from keras.preprocessing import image
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
@@ -126,6 +128,12 @@ files = [paths.mirflickr_path + k for k in list(index.keys())]
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=160)
+landmark_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+    paths.landmarks_path, target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
+    batch_size=160,
+    class_mode=None,
+    interpolation='bilinear')
+
 vgg_netvlad = my_model.build_netvladmodel()
 vgg_netvlad.summary()
 
@@ -138,7 +146,7 @@ train = not test
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=generator_nolabels, steps=10, verbose=1)
+    all_descs = vgg.predict_generator(generator=landmark_generator, steps=30, verbose=1)
     print("All descs shape: ", all_descs.shape)
 
     locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in all_descs)).astype('float32')
@@ -157,7 +165,7 @@ if train_kmeans:
 
     n_clust = my_model.n_cluster
     print("Fitting k-means")
-    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals[locals.shape[0] // 3:])
+    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
 
     print("Initializing NetVLAD")
     my_model.set_netvlad_weights(kmeans)
@@ -367,7 +375,7 @@ print("Loading images")
 img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
                                    rotate=rotate_holidays)
 print("Extracting features")
-all_feats = vgg_netvlad.predict(img_tensor, verbose=1)
+all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=128)
 
 if use_multi_resolution:
     for shape in input_shapes:
