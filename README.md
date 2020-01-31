@@ -24,6 +24,13 @@ network:
     active: false
     dim: 512
     pretrain: true
+  poolings:
+    pool_1_shape: 2
+    pool_2_shape: 3
+  pooling_feature_compression:
+    active: true
+    pool_size: 4
+    stride: 3
 
 # training
 description: "vgg_test"

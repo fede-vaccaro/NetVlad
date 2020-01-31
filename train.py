@@ -122,12 +122,8 @@ elif net_name == "resnet":
 else:
     print("Network name not valid.")
 
-index, classes = my_utils.generate_index_mirflickr(paths.mirflickr_annotations)
-files = [paths.mirflickr_path + k for k in list(index.keys())]
-
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
-generator_nolabels = my_utils.image_generator(files=files, index=index, classes=classes, batch_size=160)
 landmark_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
     paths.landmarks_path, target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
     batch_size=160,
@@ -308,7 +304,6 @@ if train:
     plt.legend()
     plt.title('Train/validation loss')
     plt.savefig("train_val_loss_{}.pdf".format(description))
-    # plt.show()
 
 print("Testing model")
 print("Input shape: ", netvlad_model.NetVladBase.input_shape)
