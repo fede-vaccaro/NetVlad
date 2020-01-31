@@ -261,7 +261,7 @@ class Loader(threading.Thread):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True):
+    def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True, semi_hard_prob=0.5, threshold=20):
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 4
@@ -274,6 +274,9 @@ class LandmarkTripletGenerator():
         self.minibatch_size = minibatch_size
         self.model = model
         self.verbose = False
+
+        self.threshold = threshold
+        self.semi_hard_prob = semi_hard_prob
 
     def generator(self):
         while True:
@@ -314,12 +317,12 @@ class LandmarkTripletGenerator():
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
                         j_neg = j
-                        if j_neg > 1 and (np.random.uniform() > 0.5):
+                        if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
                             j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < 20):
+                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
                         triplet = row[0], row[j_pos], row[j_neg], r_label
                         triplets.append(triplet)
 

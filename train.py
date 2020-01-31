@@ -5,17 +5,12 @@ import os
 import time
 from math import ceil
 
-import clr_callback as clr
 import h5py
-import holidays_testing_helpers as hth
 import matplotlib.pyplot as plt
 import numpy as np
-import open_dataset_utils as my_utils
-import paths
+import yaml
 from keras import Model, optimizers
 from keras import backend as K
-from keras import layers, regularizers
-import netvlad_model
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
@@ -23,10 +18,13 @@ from sklearn.preprocessing import normalize
 # from keras_radam import RAdam
 # from keras_radam.training import RAdamOptimizer
 from tqdm import tqdm
+
+import clr_callback as clr
+import holidays_testing_helpers as hth
+import netvlad_model
+import open_dataset_utils as my_utils
+import paths
 from triplet_loss import TripletLossLayer
-import tensorflow as tf
-import keras
-import yaml
 
 ap = argparse.ArgumentParser()
 
@@ -50,6 +48,7 @@ model_name = args['model']
 cuda_device = args['device']
 config_file = args['configuration']
 
+
 def lr_warmup(it, min_lr=1e-6, max_lr=1e-5, wu_steps=2000):
     if it < wu_steps:
         lr = max_lr * it / wu_steps + min_lr * (1. - it / wu_steps)
@@ -63,23 +62,38 @@ conf_file = open(config_file, 'r')
 conf = dict(yaml.safe_load(conf_file))
 conf_file.close()
 
+# network
 network_conf = conf['network']
 net_name = network_conf['name']
 
 n_cluster = network_conf['n_clusters']
 middle_pca = network_conf['middle_pca']
 
+# mining
+try:
+    threshold = conf['threshold']
+except:
+    threshold = 20
+
+try:
+    semi_hard_prob = conf['semi-hard-prob']
+except:
+    semi_hard_prob = 0.5
+
+# training
 train_description = conf['description']
 mining_batch_size = conf['mining_batch_size']
 minibatch_size = conf['minibatch_size']
 steps_per_epoch = conf['steps_per_epoch']
 epochs = conf['n_epochs']
 
+# learning rate
 lr_conf = conf['lr']
 use_warm_up = lr_conf['warm-up']
 warm_up_steps = lr_conf['warm-up-steps']
 max_lr = float(lr_conf['max_value'])
 
+# testing
 rotate_holidays = conf['rotate_holidays']
 use_power_norm = conf['use_power_norm']
 use_multi_resolution = conf['use_multi_resolution']
@@ -176,7 +190,8 @@ if train:
     landmark_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                            model=my_model.get_netvlad_extractor(),
                                                            mining_batch_size=mining_batch_size,
-                                                           minibatch_size=minibatch_size)
+                                                           minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
+                                                           threshold=threshold)
 
     train_generator = landmark_generator.generator()
 
@@ -211,7 +226,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = lr_warmup(it, min_lr=max_lr*0.1, max_lr=max_lr, wu_steps=warm_up_steps)
+                lr = lr_warmup(it, min_lr=max_lr * 0.1, max_lr=max_lr, wu_steps=warm_up_steps)
             else:
                 lr = max_lr
 

@@ -9,6 +9,10 @@ network:
     pretrain: true
 input-shape: 336
 
+# mining
+threshold: 20
+semi-hard-prob: 0.5
+
 # training
 description: ""
 mining_batch_size: 2048
