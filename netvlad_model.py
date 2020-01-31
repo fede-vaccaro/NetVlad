@@ -13,6 +13,7 @@ from triplet_loss import L2NormLayer
 
 class NetVladBase:
     input_shape = (336, 336, 3)
+
     def __init__(self, **kwargs):
         self.output_layer = kwargs['output_layer']
         self.n_cluster = kwargs['n_clusters']
@@ -41,8 +42,10 @@ class NetVladBase:
             feature_compression_pool_size = self.feature_compression['pool_size']
             feature_compression_strides = self.feature_compression['stride']
 
-            max_pool_1d_1 = layers.AvgPool1D(pool_size=feature_compression_pool_size, strides=feature_compression_strides, data_format='channels_first')
-            max_pool_1d_2 = layers.AvgPool1D(pool_size=feature_compression_pool_size, strides=feature_compression_strides, data_format='channels_first')
+            max_pool_1d_1 = layers.AvgPool1D(pool_size=feature_compression_pool_size,
+                                             strides=feature_compression_strides, data_format='channels_first')
+            max_pool_1d_2 = layers.AvgPool1D(pool_size=feature_compression_pool_size,
+                                             strides=feature_compression_strides, data_format='channels_first')
 
             pool_1_reshaped = max_pool_1d_1(pool_1_reshaped)
             pool_2_reshaped = max_pool_1d_2(pool_2_reshaped)
@@ -130,7 +133,7 @@ class NetVladBase:
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
-        alpha = 30.
+        alpha = 25.
 
         assignments_weights = 2. * alpha * cluster_weights
         assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)

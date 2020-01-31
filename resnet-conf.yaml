@@ -1,19 +1,19 @@
 # architecture
 network:
   name: resnet # vgg or resnet
-  output_layer: add_16 # block5_conv2 for vgg or bn5c_branch2a/add_16 for resnet
-  n_clusters: 16
+  output_layer: bn5c_branch2a # block5_conv2 for vgg or bn5c_branch2a/add_16 for resnet
+  n_clusters: 32
   poolings:
     pool_1_shape: 2
     pool_2_shape: 3
   middle_pca:
-    active: false # don't use middle pca and pooling feature compression together!
-    dim: 128
+    active: true # don't use middle pca and pooling feature compression together!
+    dim: 256
     pretrain: true
   pooling_feature_compression:
-    active: true
-    pool_size: 4
-    stride: 3
+    active: false
+    pool_size: 6
+    stride: 4
 input-shape: 336
 
 # mining

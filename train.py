@@ -124,11 +124,11 @@ else:
 
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
-landmark_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
     paths.landmarks_path, target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
     batch_size=160,
     class_mode=None,
-    interpolation='bilinear')
+    interpolation='bilinear', seed=4242)
 
 vgg_netvlad = my_model.build_netvladmodel()
 vgg_netvlad.summary()
@@ -142,7 +142,7 @@ train = not test
 
 if train_kmeans:
     print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=landmark_generator, steps=30, verbose=1)
+    all_descs = vgg.predict_generator(generator=kmeans_generator, steps=30, verbose=1)
     print("All descs shape: ", all_descs.shape)
 
     locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in all_descs)).astype('float32')
@@ -191,13 +191,13 @@ if train:
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
 
-    landmark_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
-                                                           model=my_model.get_netvlad_extractor(),
-                                                           mining_batch_size=mining_batch_size,
-                                                           minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                           threshold=threshold)
+    kmeans_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+                                                         model=my_model.get_netvlad_extractor(),
+                                                         mining_batch_size=mining_batch_size,
+                                                         minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
+                                                         threshold=threshold)
 
-    train_generator = landmark_generator.generator()
+    train_generator = kmeans_generator.generator()
 
     test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
                                                            model=my_model.get_netvlad_extractor(),
@@ -237,6 +237,7 @@ if train:
             K.set_value(vgg_netvlad.optimizer.lr, lr)
 
             x, y = next(train_generator)
+            # print("Starting training at epoch ", e)
             loss_s = vgg_netvlad.train_on_batch(x, None)
             losses_e.append(loss_s)
 
@@ -291,7 +292,7 @@ if train:
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 
-    landmark_generator.loader.stop_loading()
+    kmeans_generator.loader.stop_loading()
 
     model_name = "model_e{}_{}_.h5".format(epochs + start_epoch, description)
     vgg_netvlad.save_weights(model_name)
