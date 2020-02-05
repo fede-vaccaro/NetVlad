@@ -1,49 +1,85 @@
+import argparse
+import os
+
 import h5py
+import yaml
+from keras.applications.vgg16 import preprocess_input
+from keras.preprocessing import image
 from sklearn.decomposition import PCA
 
-from netvlad_model import NetVLADSiameseModel
-import open_dataset_utils as my_utils
+import netvlad_model as nm
 import paths
-import numpy as np
-from tqdm import tqdm
-my_model = NetVLADSiameseModel()
-vgg_netvlad = my_model.build_netvladmodel()
-weight_name = "model_e111_sc-adam-2_0.0686.h5"
 
+ap = argparse.ArgumentParser()
+
+ap.add_argument("-m", "--model", type=str,
+                help="path to *specific* model checkpoint to load")
+ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
+                help="Yaml file where the configuration is stored")
+ap.add_argument("-d", "--device", type=str, default="0",
+                help="CUDA device to be used. For info type '$ nvidia-smi'")
+args = vars(ap.parse_args())
+
+model_name = args['model']
+config_file = args['configuration']
+cuda_device = args['device']
+
+conf_file = open(config_file, 'r')
+conf = dict(yaml.safe_load(conf_file))
+conf_file.close()
+
+use_power_norm = conf['use_power_norm']
+use_multi_resolution = conf['use_multi_resolution']
+side_res = conf['input-shape']
+
+nm.NetVladBase.input_shape = (side_res, side_res, 3)
+if use_multi_resolution:
+    nm.NetVladBase.input_shape = (None, None, 3)
+
+
+def get_imlist(path):
+    return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
+
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+
+network_conf = conf['network']
+net_name = network_conf['name']
+
+my_model = None
+if net_name == "vgg":
+    my_model = nm.NetVLADSiameseModel(**network_conf)
+elif nm == "resnet":
+    my_model = nm.NetVladResnet(**network_conf)
+else:
+    print("Network name not valid.")
+
+vgg_netvlad = my_model.build_netvladmodel()
+weight_name = model_name
 print("Loading weights: " + weight_name)
 vgg_netvlad.load_weights(weight_name)
+vgg_netvlad = my_model.get_netvlad_extractor()
 
-generator = my_utils.LandmarkTripletGenerator(paths.landmarks_path, model=my_model.get_netvlad_extractor(),
-                                              use_multiprocessing=True)
-custom_generator = generator.generator()
+kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+    paths.landmarks_path,
+    target_size=(nm.NetVladBase.input_shape[0], nm.NetVladBase.input_shape[1]),
+    batch_size=128,
+    class_mode=None,
+    interpolation='bilinear', seed=4242)
 
-a = []
-p = []
-n = []
+all_descs = vgg_netvlad.predict_generator(generator=kmeans_generator, steps=256, verbose=1)
+print("All descs shape: ", all_descs.shape)
 
-for i in tqdm(range(500)):
-    x, _ = next(custom_generator)
-    a_, p_, n_ = vgg_netvlad.predict(x)
-    a += [a_]
-    p += [p_]
-    n += [n_]
-
-generator.loader.stop_loading()
-
-a = np.vstack((d for d in a)).astype('float32')
-p = np.vstack((d for d in n)).astype('float32')
-n = np.vstack((d for d in n)).astype('float32')
-
-descs = np.vstack((a, p, n))
-print(descs.shape)
-del a, p, n
+print("Sampling local features")
 
 print("Computing PCA")
-pca = PCA(512)
-pca.fit(descs)
-del descs
+dim_pca = 4096
+pca = PCA(dim_pca)
 
-pca_dataset = h5py.File("pca.h5", 'w')
+pca.fit(all_descs)
+
+pca_dataset = h5py.File("pca_{}.h5".format(dim_pca), 'w')
 pca_dataset.create_dataset('components', data=pca.components_)
 pca_dataset.create_dataset('mean', data=pca.mean_)
 pca_dataset.create_dataset('explained_variance', data=pca.explained_variance_)
