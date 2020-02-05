@@ -341,9 +341,9 @@ class LandmarkTripletGenerator():
                         d_a_p = distances[i][j_pos]
                         d_a_n = distances[i][j_neg]
 
-                        loss = 0.1 + d_a_p**2 - d_a_n**2
+                        loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
 
-                        if loss > self.loss_min and loss > self.loss_max:
+                        if self.loss_min < loss < self.loss_max:
                             triplets.append(triplet)
                             losses.append(loss)
 
@@ -570,6 +570,7 @@ def main():
             else:
                 print("Semi-hard triplet")
             show_triplet([a[i], p[i], n[i]])
+
 
 if __name__ == '__main__':
     main()

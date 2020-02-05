@@ -117,7 +117,7 @@ def main():
 
     use_pca = True
     if use_pca:
-        n_components = 2048
+        n_components = 4096
 
         pca_dataset = h5py.File("pca_{}.h5".format(n_components), 'r')
         mean = pca_dataset['mean'][:]
