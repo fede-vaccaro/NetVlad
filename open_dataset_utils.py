@@ -363,10 +363,11 @@ class LandmarkTripletGenerator():
                         class_set += [label]
 
                 triplets = selected_triplets
+                losses = selected_losses
             if self.verbose:
                 print("Different classes: {}".format(len(class_set)))
 
-            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
+            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k, _ in triplets]
             # random.shuffle(im_triplets)
 
             # del images_array, indices, distances, feats
@@ -386,7 +387,7 @@ class LandmarkTripletGenerator():
                 positives = np.array([t[1] for t in triplets_out])
                 negatives = np.array([t[2] for t in triplets_out])
 
-                yield [anchors, positives, negatives], np.array(selected_losses)  # , [y_fake]*3
+                yield [anchors, positives, negatives], np.array(losses)  # , [y_fake]*3
 
 
 def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
