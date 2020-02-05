@@ -18,6 +18,7 @@ import math
 import paths
 import argparse
 import yaml
+import utils
 ap = argparse.ArgumentParser()
 
 
@@ -114,25 +115,19 @@ def main():
             print("Computing descriptors")
             all_feats += vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1)
 
-    all_feats = normalize(all_feats)
-
-    use_pca = False
-    use_trained_pca = False
-
+    use_pca = True
     if use_pca:
-        if not use_trained_pca:
-            print("Computing PCA")
-            all_feats = PCA(512, svd_solver='full').fit_transform(all_feats)
-        else:
-            print("Loading PCA")
-            pca = PCA()
-            dataset = h5py.File("pca.h5", 'r')
-            components = dataset['components'][:]
-            mean = dataset['mean'][:]
-            pca.components_ = components
-            pca.mean_ = mean
+        n_components = 2048
 
-            all_feats = pca.transform(all_feats)
+        pca_dataset = h5py.File("pca_{}.h5".format(n_components), 'r')
+        mean = pca_dataset['mean'][:]
+        components = pca_dataset['components'][:]
+        explained_variance = pca_dataset['explained_variance'][:]
+        pca_dataset.close()
+
+        all_feats = utils.transform(all_feats, mean, components, explained_variance, whiten=True, pow_whiten=0.5)
+
+    all_feats = normalize(all_feats)
 
     if use_power_norm:
         all_feats_sign = np.sign(all_feats)

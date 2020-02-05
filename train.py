@@ -5,7 +5,6 @@ import os
 import time
 from math import ceil
 
-import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
@@ -20,13 +19,14 @@ from sklearn.preprocessing import normalize
 # from keras_radam import RAdam
 # from keras_radam.training import RAdamOptimizer
 from tqdm import tqdm
-
+import utils
 import clr_callback as clr
 import holidays_testing_helpers as hth
 import netvlad_model
 import open_dataset_utils as my_utils
 import paths
 from triplet_loss import TripletLossLayer
+import h5py
 
 ap = argparse.ArgumentParser()
 
@@ -49,16 +49,6 @@ test_kmeans = args['kmeans']
 model_name = args['model']
 cuda_device = args['device']
 config_file = args['configuration']
-
-
-def lr_warmup(it, min_lr=1e-6, max_lr=1e-5, wu_steps=2000):
-    if it < wu_steps:
-        lr = max_lr * it / wu_steps + min_lr * (1. - it / wu_steps)
-    else:
-        lr = max_lr
-
-    return lr
-
 
 conf_file = open(config_file, 'r')
 conf = dict(yaml.safe_load(conf_file))
@@ -124,12 +114,6 @@ else:
 
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
-kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
-    paths.landmarks_path, target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-    batch_size=160,
-    class_mode=None,
-    interpolation='bilinear', seed=4242)
-
 vgg_netvlad = my_model.build_netvladmodel()
 vgg_netvlad.summary()
 
@@ -141,6 +125,13 @@ train_kmeans = (not test or test_kmeans) and model_name is None and not train_pc
 train = not test
 
 if train_kmeans:
+    kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+        paths.landmarks_path,
+        target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
+        batch_size=128,
+        class_mode=None,
+        interpolation='bilinear', seed=4242)
+
     print("Predicting local features for k-means. Output shape: ", output_shape)
     all_descs = vgg.predict_generator(generator=kmeans_generator, steps=30, verbose=1)
     print("All descs shape: ", all_descs.shape)
@@ -230,7 +221,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = lr_warmup(it, min_lr=max_lr * 0.1, max_lr=max_lr, wu_steps=warm_up_steps)
+                lr = utils.lr_warmup(it, min_lr=max_lr * 0.1, max_lr=max_lr, wu_steps=warm_up_steps)
             else:
                 lr = max_lr
 
@@ -314,51 +305,12 @@ if test and model_name is not None:
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 
-pca_from_landmarks = False
-use_pca = False
-
-if pca_from_landmarks and use_pca:
-    generator = my_utils.LandmarkTripletGenerator(paths.landmarks_path, model=my_model.get_netvlad_extractor(),
-                                                  use_multiprocessing=False)
-    custom_generator = generator.generator()
-
-    a = []
-    p = []
-    n = []
-
-    for i in range(500):
-        x, _ = next(custom_generator)
-        a_, p_, n_ = vgg_netvlad.predict(x)
-        a += [a_]
-        p += [p_]
-        n += [n_]
-        print(i)
-
-    generator.loader.stop_loading()
-
-    a = np.vstack((d for d in a)).astype('float32')
-    p = np.vstack((d for d in n)).astype('float32')
-    n = np.vstack((d for d in n)).astype('float32')
-
-    descs = np.vstack((a, p, n))
-    print(descs.shape)
-    del a, p, n
-
-    print("Computing PCA")
-    pca = PCA(512)
-    pca.fit(descs)
-    del descs
-
-    pca_dataset = h5py.File("pca.h5", 'w')
-    pca_dataset.create_dataset('components', data=pca.components_)
-    pca_dataset.create_dataset('mean', data=pca.mean_)
-    pca_dataset.close()
 
 imnames = hth.get_imlist_()
 query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
 
-base_resolution = (336, 336, 3)
+base_resolution = (side_res, side_res, 3)
 
 input_shape_1 = (768, 768, 3)
 input_shape_2 = (504, 504, 3)
@@ -370,24 +322,37 @@ print("Loading images")
 img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
                                    rotate=rotate_holidays)
 print("Extracting features")
-all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=128)
+all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=12)
 
 if use_multi_resolution:
     for shape in input_shapes:
         img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=shape,
                                            rotate=True)
         batch_size = 32
-        if shape[0] == 768:
-            batch_size = 16
+        if shape[0] >= 768:
+            batch_size = 12
 
         all_feats += vgg_netvlad.predict(img_tensor, verbose=1, batch_size=batch_size)
+
+all_feats = normalize(all_feats)
+
+use_pca = True
+if use_pca:
+    n_components = 2048
+
+    pca_dataset = h5py.File("pca_{}.h5".format(n_components), 'r')
+    mean = pca_dataset['mean'][:]
+    components = pca_dataset['components'][:]
+    explained_variance = pca_dataset['explained_variance'][:]
+    pca_dataset.close()
+
+    all_feats = utils.transform(all_feats, mean, components, explained_variance, whiten=True, pow_whiten=0.5)
 
 if use_power_norm:
     all_feats_sign = np.sign(all_feats)
     all_feats = np.power(np.abs(all_feats), 0.5)
     all_feats = np.multiply(all_feats, all_feats_sign)
 
-all_feats = normalize(all_feats)
 
 query_feats = all_feats[query_imids]
 

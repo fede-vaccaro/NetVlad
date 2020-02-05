@@ -283,6 +283,9 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
+        self.loss_min = 0.09
+        self.loss_max = 0.11
+
     def generator(self):
         while True:
             if self.verbose:
@@ -331,41 +334,35 @@ class LandmarkTripletGenerator():
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
+                    # if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
+                    if (j_pos is not -1) and (j_neg is not -1):
                         triplet = row[0], row[j_pos], row[j_neg], r_label
-                        triplets.append(triplet)
 
                         d_a_p = distances[i][j_pos]
                         d_a_n = distances[i][j_neg]
 
                         loss = 0.1 + d_a_p**2 - d_a_n**2
-                        losses.append(loss)
 
-                        if False:
-                            print("Distance between indices (p:{}, n:{}) : {}".format(j_pos, j_neg, j_pos - j_neg))
-                            # print("L2 distance between query and positive: ", distances[i][j_pos])
-                            # print("L2 distance between query and negative: ", distances[i][j_neg])
-                            # print("Triplete Loss (a=0.1): ", 0.1 + distances[i][j_pos] ** 2. - distances[i][j_neg] ** 2.)
-                            i, j, k = triplet
-                            t_ = (images_array[i], images_array[j], images_array[k])
-                            show_triplet(t_)
-                        break
+                        if loss > self.loss_min and loss > self.loss_max:
+                            triplets.append(triplet)
+                            losses.append(loss)
 
-            # select triplets per classes
-            class_set = []
-            selected_triplets = []
-            selected_losses = []
+            select_triplets_per_class = False
+            if select_triplets_per_class:
+                class_set = []
+                selected_triplets = []
+                selected_losses = []
 
-            for i, t in enumerate(triplets):
-                label = t[3]
-                if label in class_set:
-                    continue
-                else:
-                    selected_triplets += [t[:3]]
-                    selected_losses += [losses[i]]
-                    class_set += [label]
+                for i, t in enumerate(triplets):
+                    label = t[3]
+                    if label in class_set:
+                        continue
+                    else:
+                        selected_triplets += [t[:3]]
+                        selected_losses += [losses[i]]
+                        class_set += [label]
 
-            triplets = selected_triplets
+                triplets = selected_triplets
             if self.verbose:
                 print("Different classes: {}".format(len(class_set)))
 
