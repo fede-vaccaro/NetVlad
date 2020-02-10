@@ -17,6 +17,35 @@ from sklearn.preprocessing import normalize
 import netvlad_model as nm
 import paths
 
+def restore_original_image_from_array(x, data_format='channels_first'):
+    mean = [103.939, 116.779, 123.68]
+
+    # Zero-center by mean pixel
+    if data_format == 'channels_first':
+        if x.ndim == 3:
+            x[0, :, :] += mean[0]
+            x[1, :, :] += mean[1]
+            x[2, :, :] += mean[2]
+        else:
+            x[:, 0, :, :] += mean[0]
+            x[:, 1, :, :] += mean[1]
+            x[:, 2, :, :] += mean[2]
+    else:
+        x[..., 0] += mean[0]
+        x[..., 1] += mean[1]
+        x[..., 2] += mean[2]
+
+    # if data_format == 'channels_first':
+    #     # 'BGR'->'RGB'
+    #     if x.ndim == 3:
+    #         x = x[::-1, ...]
+    #     else:
+    #         x = x[:, ::-1, ...]
+    # else:
+    # 'BGR'->'RGB'
+    x = x[..., ::-1]
+
+    return (x-127.5)/255.0
 
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
@@ -221,10 +250,19 @@ class Loader(threading.Thread):
             # load each image in those classes
             imgs = []
             for i, c in enumerate(picked_classes):
-                images_in_c = os.listdir(train_dir + "/" + c)
-                # images_in_c = zip(images_in_c, [i]*len(images_in_c), [c]*len(images_in_c))
+
+                # select a random component from the label
+                component_in_c = os.listdir(
+                    os.path.join(train_dir, c)
+                )
+
+                random.shuffle(component_in_c)
+
+                selected_component = component_in_c[0]
+
+                images_in_c = os.listdir(train_dir + "/" + c + "/" + selected_component)
                 for image_in_c in images_in_c:
-                    imgs += [(image_in_c, i, c)]
+                    imgs += [(selected_component + "/" + image_in_c, i, c)]
             # randomize the image list
             random.shuffle(imgs)
             # pick the first batch_size (if enough)
@@ -269,7 +307,7 @@ class LandmarkTripletGenerator():
                  semi_hard_prob=0.5, threshold=20, verbose=True):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 4
+        n_classes = mining_batch_size // 8
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         if use_multiprocessing:
@@ -343,11 +381,11 @@ class LandmarkTripletGenerator():
 
                         loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
 
-                        if self.loss_min < loss < self.loss_max:
-                            # print(loss)
-                            triplets.append(triplet)
-                            losses.append(loss)
-                            break
+                        #if self.loss_min < loss < self.loss_max:
+                        # print(loss)
+                        triplets.append(triplet)
+                        losses.append(loss)
+                        break
 
             class_set = []
             selected_triplets = []
@@ -519,17 +557,19 @@ def show_triplet(triplet):
         plt.imshow(t * 0.5 + 0.5)
 
     plt.show()
-    time.sleep(3)
+    time.sleep(1)
 
+
+restore = restore_original_image_from_array
 
 def main():
-    conf_file = open('resnet-conf.yaml', 'r')
+    conf_file = open('best-model-conf.yaml', 'r')
     conf = dict(yaml.safe_load(conf_file))
     conf_file.close()
 
     use_power_norm = conf['use_power_norm']
     use_multi_resolution = conf['use_multi_resolution']
-    side_res = conf['input-shape']
+    side_res = int(conf['input-shape'])
 
     network_conf = conf['network']
     net_name = network_conf['name']
@@ -570,7 +610,7 @@ def main():
                 print("Hard triplet")
             else:
                 print("Semi-hard triplet")
-            show_triplet([a[i], p[i], n[i]])
+            show_triplet([restore(a[i]), restore(p[i]), restore(n[i])])
 
 
 if __name__ == '__main__':
