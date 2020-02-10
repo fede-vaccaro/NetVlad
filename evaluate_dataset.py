@@ -115,7 +115,7 @@ def main():
             print("Computing descriptors")
             all_feats += vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1)
 
-    use_pca = True
+    use_pca = False
     if use_pca:
         n_components = 4096
 

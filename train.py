@@ -336,7 +336,7 @@ if use_multi_resolution:
 
 all_feats = normalize(all_feats)
 
-use_pca = True
+use_pca = False
 if use_pca:
     n_components = 2048
 

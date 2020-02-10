@@ -211,7 +211,7 @@ class Loader(threading.Thread):
 
         self.keep_loading = True
 
-        self.q = queue.Queue(4)
+        self.q = queue.Queue(2)
         super(Loader, self).__init__()
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
@@ -283,8 +283,8 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.09
-        self.loss_max = 0.11
+        self.loss_min = 0.085
+        self.loss_max = 0.105
 
     def generator(self):
         while True:
@@ -344,31 +344,31 @@ class LandmarkTripletGenerator():
                         loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
 
                         if self.loss_min < loss < self.loss_max:
+                            # print(loss)
                             triplets.append(triplet)
                             losses.append(loss)
+                            break
 
-            select_triplets_per_class = False
-            if select_triplets_per_class:
-                class_set = []
-                selected_triplets = []
-                selected_losses = []
+            class_set = []
+            selected_triplets = []
+            selected_losses = []
 
-                for i, t in enumerate(triplets):
-                    label = t[3]
-                    if label in class_set:
-                        continue
-                    else:
-                        selected_triplets += [t[:3]]
-                        selected_losses += [losses[i]]
-                        class_set += [label]
+            for i, t in enumerate(triplets):
+                label = t[3]
+                if label in class_set:
+                    continue
+                else:
+                    selected_triplets += [t[:3]]
+                    selected_losses += [losses[i]]
+                    class_set += [label]
 
-                triplets = selected_triplets
-                losses = selected_losses
-            if self.verbose:
+            triplets = selected_triplets
+            losses = selected_losses
+
+            if True:
                 print("Different classes: {}".format(len(class_set)))
 
-            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k, _ in triplets]
-            # random.shuffle(im_triplets)
+            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
 
             # del images_array, indices, distances, feats
             # gc.collect()

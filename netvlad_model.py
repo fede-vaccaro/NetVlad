@@ -23,7 +23,7 @@ class NetVladBase:
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
 
-        self.regularizer = tf.keras.regularizers.l2(0.001)
+        self.regularizer = tf.keras.regularizers.l2(1)
 
     def build_base_model(self, backbone):
         backbone.summary()
