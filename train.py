@@ -8,7 +8,7 @@ from math import ceil
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-from keras import Model, optimizers
+from keras import optimizers, Model
 from keras import backend as K
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
@@ -336,7 +336,7 @@ if use_multi_resolution:
 
 all_feats = normalize(all_feats)
 
-use_pca = True
+use_pca = False
 if use_pca:
     n_components = 2048
 

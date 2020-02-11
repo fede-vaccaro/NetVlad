@@ -23,10 +23,10 @@ class NetVladBase:
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
 
-        self.regularizer = tf.keras.regularizers.l2(0.001)
+        self.regularizer = tf.keras.regularizers.l2(0.0001)
 
     def build_base_model(self, backbone):
-        backbone.summary()
+        # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
         # self.n_filters = out.shape[3]
@@ -53,7 +53,7 @@ class NetVladBase:
 
             self.n_filters = pool_2_reshaped.shape[2]
 
-        out = concatenate([pool_1_reshaped, pool_2_reshaped], axis=1)
+        out = layers.Concatenate(axis=1)([pool_1_reshaped, pool_2_reshaped])
         self.base_model = Model(backbone.input, out)
         self.siamese_model = None
         self.images_input = None
@@ -85,17 +85,20 @@ class NetVladBase:
         self.positive = Input(shape=self.input_shape)
         self.negative = Input(shape=self.input_shape)
 
-        l2normalization = L2NormLayer()(self.base_model.output)
 
         feature_size = self.n_filters
 
         if self.middle_pca['active']:
             compression_dim = self.middle_pca['dim']
-            pca = layers.Dense(compression_dim, kernel_regularizer=self.regularizer)
+            pca = layers.Dense(compression_dim)
             self.pca = pca
-            pca = pca(l2normalization)
+            model_out = layers.Dropout(0.2)(self.base_model.output)
+            pca = pca(model_out)
             l2normalization = L2NormLayer()(pca)
+            
             feature_size = compression_dim
+        else:
+            l2normalization = L2NormLayer()(self.base_model.output)
 
         netvlad = NetVLAD(feature_size=feature_size, max_samples=0,
                           cluster_size=self.n_cluster)  # max samples is useless
@@ -134,7 +137,7 @@ class NetVladBase:
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
-        alpha = 25.
+        alpha = 30.
 
         assignments_weights = 2. * alpha * cluster_weights
         assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)
