@@ -140,7 +140,6 @@ if train_kmeans:
 
     print("Sampling local features")
 
-    locals = normalize(locals, axis=1)
     np.random.shuffle(locals)
 
     if middle_pca['pretrain'] and middle_pca['active']:
@@ -151,6 +150,9 @@ if train_kmeans:
     print("Locals extracted: {}".format(locals.shape))
 
     n_clust = my_model.n_cluster
+
+    locals = normalize(locals, axis=1)
+
     print("Fitting k-means")
     kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
 
