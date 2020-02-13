@@ -18,6 +18,37 @@ import netvlad_model as nm
 import paths
 
 
+def restore(x, data_format='channels_first'):
+    mean = [103.939, 116.779, 123.68]
+
+    # Zero-center by mean pixel
+    if data_format == 'channels_first':
+        if x.ndim == 3:
+            x[0, :, :] += mean[0]
+            x[1, :, :] += mean[1]
+            x[2, :, :] += mean[2]
+        else:
+            x[:, 0, :, :] += mean[0]
+            x[:, 1, :, :] += mean[1]
+            x[:, 2, :, :] += mean[2]
+    else:
+        x[..., 0] += mean[0]
+        x[..., 1] += mean[1]
+        x[..., 2] += mean[2]
+
+    if not data_format == 'channels_first':
+        # 'BGR'->'RGB'
+        if x.ndim == 3:
+            x = x[::-1, ...]
+        else:
+            x = x[:, ::-1, ...]
+    else:
+        # 'BGR'->'RGB'
+        x = x[..., ::-1]
+
+    return (x - 127.5) / 255.0
+
+
 def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
@@ -266,7 +297,7 @@ class Loader(threading.Thread):
 
 class LandmarkTripletGenerator():
     def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True,
-                 semi_hard_prob=0.5, threshold=20, verbose=True):
+                 semi_hard_prob=0.5, threshold=20, verbose=False):
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 4
@@ -278,13 +309,13 @@ class LandmarkTripletGenerator():
         self.use_multiprocessing = use_multiprocessing
         self.minibatch_size = minibatch_size
         self.model = model
-        self.verbose = False
+        self.verbose = verbose
 
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.085
-        self.loss_max = 0.105
+        self.loss_min = 0.00850
+        self.loss_max = 0.20000
 
     def generator(self):
         while True:
@@ -334,8 +365,8 @@ class LandmarkTripletGenerator():
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    # if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
-                    if (j_pos is not -1) and (j_neg is not -1):
+                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
+                    # if (j_pos is not -1) and (j_neg is not -1):
                         triplet = row[0], row[j_pos], row[j_neg], r_label
 
                         d_a_p = distances[i][j_pos]
@@ -380,11 +411,27 @@ class LandmarkTripletGenerator():
             # im_triplets = im_triplets[:K_classes]
 
             pages = math.ceil(K_classes / self.minibatch_size)
+            datagen = ImageDataGenerator(preprocessing_function=preprocess_input,
+                                         rotation_range=5,
+                                         width_shift_range=0.2,
+                                         height_shift_range=0.2,
+                                         shear_range=0.2,
+                                         zoom_range=0.5,
+                                         brightness_range=[0.8, 2.0],
+                                         horizontal_flip=False,
+                                         fill_mode='nearest')
+
             for page in range(pages):
                 triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
 
                 anchors = np.array([t[0] for t in triplets_out])
                 positives = np.array([t[1] for t in triplets_out])
+                # augment positives
+
+                #positives = next(
+                #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
+                #                 batch_size=self.minibatch_size, shuffle=False))
+
                 negatives = np.array([t[2] for t in triplets_out])
 
                 yield [anchors, positives, negatives], np.array(losses)  # , [y_fake]*3
@@ -518,12 +565,15 @@ def show_triplet(triplet):
         fig.add_subplot(1, 3, i + 1)
         plt.imshow(t * 0.5 + 0.5)
 
-    plt.show()
-    time.sleep(3)
+    plt.savefig("triplets/triplet{}.jpg".format(random.randint(1, 100000)))
+    print("Triplet saved")
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 
 def main():
-    conf_file = open('resnet-conf.yaml', 'r')
+    conf_file = open('best-model-conf.yaml', 'r')
     conf = dict(yaml.safe_load(conf_file))
     conf_file.close()
 
@@ -547,7 +597,7 @@ def main():
         print("Network name not valid.")
 
     vgg_netvlad = my_model.build_netvladmodel()
-    weight_name = "best_model.h5"
+    weight_name = "weights/best_model.h5"
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
@@ -555,8 +605,8 @@ def main():
     landmark_generator = LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                   model=vgg_netvlad,
                                                   mining_batch_size=2048,
-                                                  minibatch_size=6, semi_hard_prob=.0,
-                                                  threshold=5)
+                                                  minibatch_size=6, semi_hard_prob=1.0,
+                                                  threshold=5, verbose=True)
 
     train_generator = landmark_generator.generator()
 
@@ -569,8 +619,20 @@ def main():
             if y[i] > 0.1:
                 print("Hard triplet")
             else:
-                print("Semi-hard triplet")
-            show_triplet([a[i], p[i], n[i]])
+                descs = vgg_netvlad.predict(np.array([a[i], p[i], n[i]]))
+                a_desc = descs[0]
+                p_desc = descs[1]
+                n_desc = descs[2]
+
+                alpha = 0.1
+                d_a_p = np.linalg.norm(a_desc - p_desc)
+                d_a_n = np.linalg.norm(a_desc - n_desc)
+
+                loss = alpha + d_a_p**2 - d_a_n**2
+
+                print("Semi-hard triplet. New loss: ", loss)
+
+            show_triplet([restore(a[i]), restore(p[i]), restore(n[i])])
 
 
 if __name__ == '__main__':

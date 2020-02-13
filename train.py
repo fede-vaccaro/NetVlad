@@ -8,7 +8,7 @@ from math import ceil
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-from keras import Model, optimizers
+from keras import optimizers, Model
 from keras import backend as K
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
@@ -128,7 +128,7 @@ if train_kmeans:
     kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
         paths.landmarks_path,
         target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-        batch_size=128,
+        batch_size=128//4,
         class_mode=None,
         interpolation='bilinear', seed=4242)
 
@@ -140,7 +140,6 @@ if train_kmeans:
 
     print("Sampling local features")
 
-    locals = normalize(locals, axis=1)
     np.random.shuffle(locals)
 
     if middle_pca['pretrain'] and middle_pca['active']:
@@ -151,6 +150,9 @@ if train_kmeans:
     print("Locals extracted: {}".format(locals.shape))
 
     n_clust = my_model.n_cluster
+
+    locals = normalize(locals, axis=1)
+
     print("Fitting k-means")
     kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
 
@@ -305,7 +307,6 @@ if test and model_name is not None:
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 
-
 imnames = hth.get_imlist_()
 query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
@@ -322,7 +323,7 @@ print("Loading images")
 img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
                                    rotate=rotate_holidays)
 print("Extracting features")
-all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=12)
+all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=3)
 
 if use_multi_resolution:
     for shape in input_shapes:
