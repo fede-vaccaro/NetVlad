@@ -238,7 +238,8 @@ class NetVladResnet(NetVladBase):
 
 class GeMResnet(NetVladResnet):
     def build_netvladmodel(self, kmeans=None):
-        gem_out = gem.GeM(pool_size=11, normalize=True)(self.base_model.get_output_layer(self.output_layer).output)
+        gem_out = gem.GeM(pool_size=11, normalize=False)(self.base_model.get_layer(self.output_layer).output)
+        gem_out = layers.Flatten()(gem_out)
         self.netvlad_base = Model(self.base_model.input, gem_out)
 
         return self.netvlad_base

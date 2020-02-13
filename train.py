@@ -123,7 +123,7 @@ print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
 # train kmeans disabled for GeM
-train_kmeans = False (not test or test_kmeans) and model_name is None and not train_pca
+train_kmeans = False and (not test or test_kmeans) and model_name is None and not train_pca
 train = not test
 
 if train_kmeans:
