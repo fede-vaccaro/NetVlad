@@ -128,7 +128,7 @@ if train_kmeans:
     kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
         paths.landmarks_path,
         target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-        batch_size=128,
+        batch_size=128//4,
         class_mode=None,
         interpolation='bilinear', seed=4242)
 
@@ -307,7 +307,6 @@ if test and model_name is not None:
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 
-
 imnames = hth.get_imlist_()
 query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
 print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
@@ -324,7 +323,7 @@ print("Loading images")
 img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
                                    rotate=rotate_holidays)
 print("Extracting features")
-all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=12)
+all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=3)
 
 if use_multi_resolution:
     for shape in input_shapes:

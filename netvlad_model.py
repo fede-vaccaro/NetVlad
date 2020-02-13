@@ -23,7 +23,7 @@ class NetVladBase:
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
 
-        self.regularizer = tf.keras.regularizers.l2(0.0001)
+        self.regularizer = tf.keras.regularizers.l2(0.00001)
 
     def build_base_model(self, backbone):
         # backbone.summary()
@@ -99,6 +99,7 @@ class NetVladBase:
             feature_size = compression_dim
         else:
             l2normalization = L2NormLayer()(self.base_model.output)
+            # l2normalization = self.base_model.output
 
         netvlad = NetVLAD(feature_size=feature_size, max_samples=0,
                           cluster_size=self.n_cluster)  # max samples is useless
@@ -137,7 +138,7 @@ class NetVladBase:
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
-        alpha = 30.
+        alpha = 30.0
 
         assignments_weights = 2. * alpha * cluster_weights
         assignments_bias = -alpha * np.sum(np.power(cluster_weights, 2), axis=1)
