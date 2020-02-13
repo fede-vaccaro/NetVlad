@@ -108,7 +108,8 @@ my_model = None
 if net_name == "vgg":
     my_model = netvlad_model.NetVLADSiameseModel(**network_conf)
 elif net_name == "resnet":
-    my_model = netvlad_model.NetVladResnet(**network_conf)
+    # my_model = netvlad_model.NetVladResnet(**network_conf)
+    my_model = netvlad_model.GeMResnet(**network_conf)
 else:
     print("Network name not valid.")
 
@@ -121,14 +122,15 @@ print("Netvlad output shape: ", vgg_netvlad.output_shape)
 print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
-train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca
+# train kmeans disabled for GeM
+train_kmeans = False (not test or test_kmeans) and model_name is None and not train_pca
 train = not test
 
 if train_kmeans:
     kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
         paths.landmarks_path,
         target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-        batch_size=128//4,
+        batch_size=128,
         class_mode=None,
         interpolation='bilinear', seed=4242)
 

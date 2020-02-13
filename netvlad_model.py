@@ -4,9 +4,10 @@ import vis.utils.utils
 from keras import activations
 from keras import layers
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D
+from keras.layers import Input, Reshape, MaxPool2D
 from keras.models import Model
 
+from keras_gem import gem
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 
@@ -81,11 +82,6 @@ class NetVladBase:
     def build_netvladmodel(self, kmeans=None):
         self.images_input = Input(shape=self.input_shape)
 
-        self.anchor = Input(shape=self.input_shape)
-        self.positive = Input(shape=self.input_shape)
-        self.negative = Input(shape=self.input_shape)
-
-
         feature_size = self.n_filters
 
         if self.middle_pca['active']:
@@ -95,7 +91,7 @@ class NetVladBase:
             model_out = layers.Dropout(0.2)(self.base_model.output)
             pca = pca(model_out)
             l2normalization = L2NormLayer()(pca)
-            
+
             feature_size = compression_dim
         else:
             l2normalization = L2NormLayer()(self.base_model.output)
@@ -116,6 +112,10 @@ class NetVladBase:
         return self.siamese_model
 
     def get_siamese_network(self):
+        self.anchor = Input(shape=self.input_shape)
+        self.positive = Input(shape=self.input_shape)
+        self.negative = Input(shape=self.input_shape)
+
         netvlad_a = self.netvlad_base([self.anchor])
         netvlad_p = self.netvlad_base([self.positive])
         netvlad_n = self.netvlad_base([self.negative])
@@ -208,23 +208,6 @@ class NetVLADSiameseModel(NetVladBase):
         self.build_base_model(model)
 
 
-# 'res4e_branch2a' x 80~
-# res4a_branch2a x 77
-# res4a_branch2b x 738
-# res4b_branch2b x 829
-# bn4b_branch2b x 845
-# res4c_branch2a x 804
-# bn4c_branch2a x 827
-# res4c_branch2b
-# bn4c_branch2b x 74.9
-# bn5c_branch2a x 81.4
-# bn5c_branch2a 32 cluster x 81.2
-# bn5c_branch2a diretto x 78.3
-# add_16 32 cluster x
-# add_16 2048 -> 512 -> 84.7
-# add_16 2048 -> 512 -> 64 cluter 85.0
-
-
 class NetVladResnet(NetVladBase):
     def __init__(self, **kwargs):
         super(NetVladResnet, self).__init__(**kwargs)
@@ -251,3 +234,11 @@ class NetVladResnet(NetVladBase):
         self.filter_l = None  # useless, just for compatibility with netvlad implementation
 
         self.build_base_model(model)
+
+
+class GeMResnet(NetVladResnet):
+    def build_netvladmodel(self, kmeans=None):
+        gem_out = gem.GeM(pool_size=11, normalize=True)(self.base_model.get_output_layer(self.output_layer).output)
+        self.netvlad_base = Model(self.base_model.input, gem_out)
+
+        return self.netvlad_base
