@@ -219,7 +219,7 @@ class NetVladResnet(NetVladBase):
             if type(layer) is not type(layers.BatchNormalization()):
                 layer.trainable = False
 
-        self.regularizer = tf.keras.regularizers.l2(0.001)
+        self.regularizer = tf.keras.regularizers.l2(0.0001)
 
         for layer in model.layers:
             layer.trainable = True
@@ -238,8 +238,11 @@ class NetVladResnet(NetVladBase):
 
 class GeMResnet(NetVladResnet):
     def build_netvladmodel(self, kmeans=None):
-        gem_out = gem.GeM(pool_size=11, normalize=False)(self.base_model.get_layer(self.output_layer).output)
+        gem_out = gem.GeM(pool_size=11)(self.base_model.get_layer(self.output_layer).output)
         gem_out = layers.Flatten()(gem_out)
+        gem_out = L2NormLayer()(gem_out)
         self.netvlad_base = Model(self.base_model.input, gem_out)
 
-        return self.netvlad_base
+        self.siamese_model = self.get_siamese_network()
+        return self.siamese_model
+

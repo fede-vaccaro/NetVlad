@@ -298,6 +298,7 @@ if train:
                 print("Optimizer weights restarted.")
 
         print("Validation loss: {}\n".format(val_loss))
+        print("Training loss: {}\n".format(loss))
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 
@@ -348,7 +349,7 @@ if use_multi_resolution:
 
         all_feats += vgg_netvlad.predict(img_tensor, verbose=1, batch_size=batch_size)
 
-all_feats = normalize(all_feats)
+# all_feats = normalize(all_feats)
 
 use_pca = False
 if use_pca:
