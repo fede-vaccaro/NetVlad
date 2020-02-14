@@ -113,6 +113,7 @@ elif net_name == "resnet":
 else:
     print("Network name not valid.")
 
+
 vgg, output_shape = my_model.get_feature_extractor(verbose=True)
 
 vgg_netvlad = my_model.build_netvladmodel()
@@ -123,8 +124,21 @@ print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
 # train kmeans disabled for GeM
-train_kmeans = False and (not test or test_kmeans) and model_name is None and not train_pca
+train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca
 train = not test
+
+if test and model_name is not None:
+    print("Loading ", model_name)
+    vgg_netvlad.load_weights(model_name)
+
+backbone = my_model.get_netvlad_extractor()
+
+
+my_model_netvlad = netvlad_model.NetVladResnet(**network_conf)
+my_model_netvlad.build_base_model(backbone=Model(backbone.input, backbone.get_layer('add_16').output))
+my_model_netvlad.build_netvladmodel()
+
+my_model = my_model_netvlad
 
 if train_kmeans:
     kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
@@ -303,9 +317,6 @@ if train:
 print("Testing model")
 print("Input shape: ", netvlad_model.NetVladBase.input_shape)
 
-if test and model_name is not None:
-    print("Loading ", model_name)
-    vgg_netvlad.load_weights(model_name)
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 
