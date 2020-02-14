@@ -314,7 +314,7 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.00850
+        self.loss_min = 0.00000
         self.loss_max = 0.20000
 
     def generator(self):
