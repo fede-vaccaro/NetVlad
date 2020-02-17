@@ -5,6 +5,7 @@ network:
   n_clusters: 16
   split_vlad: 16
   poolings:
+    active: true
     pool_1_shape: 2
     pool_2_shape: 3
   middle_pca:

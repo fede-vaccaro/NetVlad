@@ -59,8 +59,10 @@ class NetVladBase:
 
             self.n_filters = pool_2_reshaped.shape[2]
 
-        out = layers.Concatenate(axis=1)([pool_1_reshaped, pool_2_reshaped])
-        # out = out_reshaped
+        if self.poolings['active']:
+            out = layers.Concatenate(axis=1)([pool_1_reshaped, pool_2_reshaped])
+        else:
+            out = out_reshaped
 
         assert self.n_filters % self.n_splits == 0
         self.split_dimension = self.n_filters // self.n_splits
@@ -123,7 +125,7 @@ class NetVladBase:
 
             self.netvlad += [netvlad]
 
-            netvlad_i = netvlad(l2normalization)
+            netvlad_i = L2NormLayer()(netvlad(l2normalization))
 
             netvlad_out.append(netvlad_i)
 
