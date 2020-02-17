@@ -125,12 +125,12 @@ class NetVladBase:
 
             self.netvlad += [netvlad]
 
-            netvlad_i = L2NormLayer()(netvlad(l2normalization))
+            netvlad_i = netvlad(l2normalization)
 
             netvlad_out.append(netvlad_i)
 
         if len(netvlad_out) > 1:
-            netvlad_base = Model(self.base_model.input, concatenate([netvlad for netvlad in netvlad_out]))
+            netvlad_base = Model(self.base_model.input, L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
         else:
             netvlad_base = Model(self.base_model.input, netvlad_out[0])
         self.netvlad_base = netvlad_base

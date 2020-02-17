@@ -19,17 +19,17 @@ network:
 input-shape: 336
 
 # mining
-threshold: 5
-semi-hard-prob: 0.75
+threshold: 20
+semi-hard-prob: 0.5
 
 # training
-description: "resnet-add16-mining-cut-whitening2"
+description: "resnet-add16-multivlad"
 mining_batch_size: 2048
 minibatch_size: 6
-steps_per_epoch: 50
-n_epochs: 10
+steps_per_epoch: 400
+n_epochs: 120
 lr:
-  warm-up: false
+  warm-up: true
   warm-up-steps: 2000 # if warm-up is active
   max_value: 1e-5
 # min_value: max_value*0.1 by default
