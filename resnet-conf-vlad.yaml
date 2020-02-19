@@ -19,8 +19,8 @@ network:
 input-shape: 336
 
 # mining
-threshold: 20
-semi-hard-prob: 0.5
+threshold: 5
+semi-hard-prob: 0.75
 
 # training
 description: "resnet-add16-multivlad-2"

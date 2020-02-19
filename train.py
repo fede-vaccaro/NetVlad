@@ -160,7 +160,7 @@ if train:
                                                          model=my_model.get_netvlad_extractor(),
                                                          mining_batch_size=mining_batch_size,
                                                          minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                         threshold=threshold)
+                                                         threshold=threshold, use_positives_augmentation=True)
 
     train_generator = kmeans_generator.generator()
 
