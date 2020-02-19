@@ -254,6 +254,8 @@ if train:
                 print("Optimizer weights restarted.")
 
         print("Validation loss: {}\n".format(val_loss))
+        print("Training loss: {}\n".format(loss))
+
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 

@@ -23,11 +23,11 @@ threshold: 20
 semi-hard-prob: 0.5
 
 # training
-description: "resnet-add16-multivlad"
+description: "resnet-add16-multivlad-2"
 mining_batch_size: 2048
 minibatch_size: 6
 steps_per_epoch: 400
-n_epochs: 120
+n_epochs: 100
 lr:
   warm-up: true
   warm-up-steps: 2000 # if warm-up is active

@@ -28,11 +28,19 @@ ap.add_argument("-c", "--configuration", type=str, default='train_configuration.
                 help="Yaml file where the configuration is stored")
 ap.add_argument("-d", "--device", type=str, default="0",
                 help="CUDA device to be used. For info type '$ nvidia-smi'")
+ap.add_argument("-p", "--paris", action='store_true',
+                help="Test Paris6K")
+ap.add_argument("-o", "--oxford", action='store_true',
+                help="Test Oxford5K")
+
 args = vars(ap.parse_args())
 
 model_name = args['model']
 config_file = args['configuration']
 cuda_device = args['device']
+
+test_paris = args['paris']
+test_oxford = args['oxford']
 
 conf_file = open(config_file, 'r')
 conf = dict(yaml.safe_load(conf_file))
@@ -64,8 +72,10 @@ def main():
     if format is 'inria':
         path = path_holidays
     elif format is 'buildings':
-        path = path_oxford
-        # path = path_paris
+        if test_oxford:
+            path = path_oxford
+        elif test_paris:
+            path = path_paris
 
     network_conf = conf['network']
     net_name = network_conf['name']
@@ -75,6 +85,7 @@ def main():
         my_model = nm.NetVLADSiameseModel(**network_conf)
     elif net_name == "resnet":
         my_model = nm.NetVladResnet(**network_conf)
+        # my_model = nm.GeMResnet(**network_conf)
     else:
         print("Network name not valid.")
 
@@ -84,14 +95,14 @@ def main():
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
 
-    base_resolution = (336, 336, 3)
+    base_resolution = (side_res, side_res, 3)
 
     input_shape_1 = (768, 768, 3)
     input_shape_2 = (504, 504, 3)
     input_shape_3 = (224, 224, 3)
     input_shape_4 = (160, 160, 3)
 
-    batch_size = 32
+    batch_size = 16
     input_shapes = [input_shape_2, input_shape_3]
 
     datagen = ImageDataGenerator(preprocessing_function=preprocess_input)

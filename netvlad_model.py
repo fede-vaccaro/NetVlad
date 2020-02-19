@@ -29,14 +29,14 @@ class NetVladBase:
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
 
-        self.regularizer = tf.keras.regularizers.l2(0.00001)
+        self.regularizer = tf.keras.regularizers.l2(0.001)
 
     def build_base_model(self, backbone):
         # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
-        self.n_filters = out.shape[-1]
-        # self.n_filters = 512
+        # self.n_filters = out.shape[-1]
+        self.n_filters = 2048
 
         pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
         pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
@@ -63,6 +63,8 @@ class NetVladBase:
             out = layers.Concatenate(axis=1)([pool_1_reshaped, pool_2_reshaped])
         else:
             out = out_reshaped
+
+        out = L2NormLayer()(out)
 
         assert self.n_filters % self.n_splits == 0
         self.split_dimension = self.n_filters // self.n_splits
@@ -117,7 +119,8 @@ class NetVladBase:
 
                 feature_size = compression_dim
             else:
-                l2normalization = L2NormLayer()(split)
+                # l2normalization = L2NormLayer()(split)
+                l2normalization = split
                 # l2normalization = self.base_model.output
 
             netvlad = NetVLAD(feature_size=self.split_dimension, max_samples=0,
