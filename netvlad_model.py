@@ -35,8 +35,8 @@ class NetVladBase:
         # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
-        # self.n_filters = out.shape[-1]
-        self.n_filters = 2048
+        self.n_filters = int(out.shape[-1])
+        # self.n_filters = 2048
 
         pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
         pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
@@ -135,7 +135,7 @@ class NetVladBase:
         if len(netvlad_out) > 1:
             netvlad_base = Model(self.base_model.input, L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
         else:
-            netvlad_base = Model(self.base_model.input, netvlad_out[0])
+            netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
         self.netvlad_base = netvlad_base
 
         self.netvlad_base.summary()
