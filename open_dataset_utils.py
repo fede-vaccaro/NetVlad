@@ -245,9 +245,11 @@ class Loader(threading.Thread):
             imgs = []
             for i, c in enumerate(picked_classes):
                 images_in_c = os.listdir(train_dir + "/" + c)
-                # images_in_c = zip(images_in_c, [i]*len(images_in_c), [c]*len(images_in_c))
+                num_samples_in_c = len(images_in_c)
+                random.shuffle(images_in_c)
+                images_in_c = images_in_c[:min(batch_size // n_classes, num_samples_in_c)]
                 for image_in_c in images_in_c:
-                    imgs += [(image_in_c, i, c)]
+                   imgs += [(image_in_c, i, c)]
             # randomize the image list
             random.shuffle(imgs)
             # pick the first batch_size (if enough)
@@ -292,7 +294,7 @@ class LandmarkTripletGenerator():
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 4
+        n_classes = mining_batch_size // 6
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         if use_multiprocessing:
@@ -601,11 +603,11 @@ def main():
     weight_name = "best_model.h5"
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
-    # vgg_netvlad = my_model.get_netvlad_extractor()
+    vgg_netvlad = my_model.get_netvlad_extractor()
 
     from keras.applications import ResNet50
 
-    vgg_netvlad = ResNet50(input_shape=(336,336,3), weights='imagenet', pooling='avg', include_top=False)
+    # vgg_netvlad = ResNet50(input_shape=(336,336,3), weights='imagenet', pooling='avg', include_top=False)
 
     landmark_generator = LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
                                                   model=vgg_netvlad,
@@ -625,6 +627,7 @@ def main():
                 print("Hard triplet")
 
             descs = vgg_netvlad.predict(np.array([a[i], p[i], n[i]]))
+            descs = normalize(descs)
             a_desc = descs[0]
             p_desc = descs[1]
             n_desc = descs[2]
