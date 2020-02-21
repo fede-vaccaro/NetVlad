@@ -20,7 +20,7 @@ def preprocess_input(x):
     x[:, :, 1] -= mean[1]
     x[:, :, 2] -= mean[2]
 
-    # return x
+    return x
 
 
 def get_imlist_(path="holidays_small_2"):

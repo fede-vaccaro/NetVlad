@@ -174,6 +174,7 @@ class NetVladBase:
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
+
         alpha = 30.0
 
         assignments_weights = 2. * alpha * cluster_weights
