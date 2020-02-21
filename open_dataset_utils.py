@@ -307,7 +307,7 @@ class LandmarkTripletGenerator():
         self.semi_hard_prob = semi_hard_prob
 
         self.loss_min = 0.00000
-        self.loss_max = 0.20000
+        self.loss_max = 0.30000
 
         self.use_positives_augmentation = use_positives_augmentation
 
@@ -601,13 +601,17 @@ def main():
     weight_name = "best_model.h5"
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
-    vgg_netvlad = my_model.get_netvlad_extractor()
+    # vgg_netvlad = my_model.get_netvlad_extractor()
 
-    landmark_generator = LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+    from keras.applications import ResNet50
+
+    vgg_netvlad = ResNet50(input_shape=(336,336,3), weights='imagenet', pooling='avg', include_top=False)
+
+    landmark_generator = LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
                                                   model=vgg_netvlad,
                                                   mining_batch_size=2048,
-                                                  minibatch_size=6, semi_hard_prob=1.0,
-                                                  threshold=5, verbose=True)
+                                                  minibatch_size=6, semi_hard_prob=0.0,
+                                                  threshold=200, verbose=True)
 
     train_generator = landmark_generator.generator()
 

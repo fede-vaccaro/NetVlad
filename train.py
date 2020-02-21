@@ -129,7 +129,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 #
 #     my_model.train_kmeans(kmeans_generator)
 
-load_means = True
+load_means = False
 train = True
 
 model = ResNet50(weights='imagenet', include_top=False, pooling='avg',
@@ -141,7 +141,7 @@ means = {}
 init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
     paths.landmark_clustered_path,
     target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-    batch_size=128,
+    batch_size=minibatch_size,
     class_mode='categorical',
     interpolation='bilinear', shuffle=False)
 
@@ -157,24 +157,24 @@ if not load_means:
     print(labels)
     output_shape = all_feats.shape[1]
 
-    for i in init_generator.labels:
-        if i in labels:
-            clusters[i] = []
-            means[i] = []
+    for i in set(init_generator.labels):
+        clusters[str(i)] = []
+        means[str(i)] = []
 
     print("Preparing clusters")
     for i, z in enumerate(zip(all_feats, labels)):
         feat, y = z
-        clusters[y] += [feat]
+        clusters[str(y)] += [feat]
 
     print("Preparing means")
 
     means_h5 = h5py.File('means.h5', 'w')
 
     for label in clusters.keys():
-        descs_array = np.array(clusters[label])
+        descs_array = normalize(np.array(clusters[label]))
         samples = len(descs_array)
-        mean = np.sum(descs_array, axis=0) / samples
+        mean = np.sum(descs_array, axis=0)
+        mean /= np.linalg.norm(mean, ord=2)
         means[label] = mean
         means_h5.create_dataset(name=str(label), data=mean)
 
@@ -205,7 +205,7 @@ training_model = Model(model.input, L2NormLayer()(x))
 
 centroids = normalize(centroids)
 
-alpha = 0.01
+alpha = 0.03
 assignments_weights = 2. * alpha * centroids
 assignments_bias = -alpha * np.sum(np.power(centroids, 2), axis=1)
 
@@ -219,6 +219,7 @@ weights_softmax[0] = assignments_weights
 weights_softmax[1] = assignments_bias
 
 softmax.set_weights(weights_softmax)
+softmax.trainable = False
 
 train_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input, rotation_range=5,
                                            width_shift_range=0.1,
@@ -241,7 +242,7 @@ def my_sparse_categorical_crossentropy(y_true, y_pred):
 
 if train:
     loss = my_sparse_categorical_crossentropy
-    optimizer = optimizers.Adam(lr=1e-5, decay=1e-3)
+    optimizer = optimizers.Adam(lr=1e-5)
     training_model.compile(loss=loss, optimizer=optimizer, metrics=['acc'])
     training_model.fit_generator(generator=train_generator, steps_per_epoch=300, epochs=4, verbose=1)
 
