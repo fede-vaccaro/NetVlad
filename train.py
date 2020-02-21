@@ -219,7 +219,6 @@ weights_softmax[0] = assignments_weights
 weights_softmax[1] = assignments_bias
 
 softmax.set_weights(weights_softmax)
-softmax.trainable = False
 
 train_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input, rotation_range=5,
                                            width_shift_range=0.1,
@@ -231,7 +230,7 @@ train_generator = image.ImageDataGenerator(preprocessing_function=preprocess_inp
                                            fill_mode='nearest').flow_from_directory(
     paths.landmark_clustered_path,
     target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-    batch_size=24,
+    batch_size=minibatch_size,
     class_mode='categorical',
     interpolation='bilinear', shuffle=True, )
 
@@ -244,7 +243,7 @@ if train:
     loss = my_sparse_categorical_crossentropy
     optimizer = optimizers.Adam(lr=1e-5)
     training_model.compile(loss=loss, optimizer=optimizer, metrics=['acc'])
-    training_model.fit_generator(generator=train_generator, steps_per_epoch=300, epochs=4, verbose=1)
+    training_model.fit_generator(generator=train_generator, steps_per_epoch=n_steps, epochs=3, verbose=1)
 
 # print(init_generator.filepaths[0])
 # img, _ = my_utils.open_img(init_generator.filepaths[0])
