@@ -8,7 +8,6 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
@@ -18,35 +17,28 @@ import netvlad_model as nm
 import paths
 
 
-def restore(x, data_format='channels_first'):
+def preprocess_input(x):
+    # RGB -> BGR
+    x = x[:, :, [2, 1, 0]]
     mean = [103.939, 116.779, 123.68]
 
-    # Zero-center by mean pixel
-    if data_format == 'channels_first':
-        if x.ndim == 3:
-            x[0, :, :] += mean[0]
-            x[1, :, :] += mean[1]
-            x[2, :, :] += mean[2]
-        else:
-            x[:, 0, :, :] += mean[0]
-            x[:, 1, :, :] += mean[1]
-            x[:, 2, :, :] += mean[2]
-    else:
-        x[..., 0] += mean[0]
-        x[..., 1] += mean[1]
-        x[..., 2] += mean[2]
+    x[:, :, 0] -= mean[0]
+    x[:, :, 1] -= mean[1]
+    x[:, :, 2] -= mean[2]
 
-    if not data_format == 'channels_first':
-        # 'BGR'->'RGB'
-        if x.ndim == 3:
-            x = x[::-1, ...]
-        else:
-            x = x[:, ::-1, ...]
-    else:
-        # 'BGR'->'RGB'
-        x = x[..., ::-1]
+    return x
 
-    return (x - 127.5) / 255.0
+
+def restore(x):
+    mean = [103.939, 116.779, 123.68]
+    y = np.array(x)
+    y[..., 0] += mean[0]
+    y[..., 1] += mean[1]
+    y[..., 2] += mean[2]
+
+    # 'BGR'->'RGB'
+    y = y[:, :, [2, 1, 0]]
+    return y
 
 
 def get_imlist(path):
@@ -60,7 +52,8 @@ def get_txtlist(path):
 def open_img(path, input_shape=nm.NetVladBase.input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
     # img = (image.img_to_array(img) - 127.5) / 127.5
-    img = preprocess_input(image.img_to_array(img))
+    img = image.img_to_array(img)
+    img = preprocess_input(img)
     img_id = path.split('/')[-1]
 
     return img, img_id
@@ -69,8 +62,8 @@ def open_img(path, input_shape=nm.NetVladBase.input_shape):
 def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=nm.NetVladBase.input_shape,
                     augmentation=False):
     train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
-                                       width_shift_range=0.4,
-                                       height_shift_range=0.4,
+                                       width_shift_range=0.2,
+                                       height_shift_range=0.2,
                                        shear_range=0.1,
                                        zoom_range=0.4,
                                        horizontal_flip=False,
@@ -297,7 +290,7 @@ class Loader(threading.Thread):
 
 class LandmarkTripletGenerator():
     def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True,
-                 semi_hard_prob=0.5, threshold=20, verbose=False):
+                 semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 4
@@ -314,8 +307,10 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.0850
-        self.loss_max = 0.1000
+        self.loss_min = 0.00000
+        self.loss_max = 0.20000
+
+        self.use_positives_augmentation = use_positives_augmentation
 
     def generator(self):
         while True:
@@ -366,41 +361,41 @@ class LandmarkTripletGenerator():
                         j_pos = j
 
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
-                    # if (j_pos is not -1) and (j_neg is not -1):
+                        # if (j_pos is not -1) and (j_neg is not -1):
                         triplet = row[0], row[j_pos], row[j_neg], r_label
 
                         d_a_p = distances[i][j_pos]
                         d_a_n = distances[i][j_neg]
 
                         loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
+                        loss_ = 0.1 + d_a_p ** 2 - d_a_n ** 2
 
-                    #    if self.loss_min < loss < self.loss_max:
-                        triplets.append(triplet)
-                        losses.append(loss)
+                        if self.loss_min < loss < self.loss_max:
+                            # print(loss)
+                            triplets.append(triplet)
+                            losses.append(loss)
                         break
 
-            select_triplets_per_class = True
-            if select_triplets_per_class:
-                class_set = []
-                selected_triplets = []
-                selected_losses = []
+            class_set = []
+            selected_triplets = []
+            selected_losses = []
 
-                for i, t in enumerate(triplets):
-                    label = t[3]
-                    if label in class_set:
-                        continue
-                    else:
-                        selected_triplets += [t[:3]]
-                        selected_losses += [losses[i]]
-                        class_set += [label]
+            for i, t in enumerate(triplets):
+                label = t[3]
+                if label in class_set:
+                    continue
+                else:
+                    selected_triplets += [t[:3]]
+                    selected_losses += [losses[i]]
+                    class_set += [label]
 
-                triplets = selected_triplets
-                losses = selected_losses
-            if self.verbose:
+            triplets = selected_triplets
+            losses = selected_losses
+
+            if True:
                 print("Different classes: {}".format(len(class_set)))
 
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
-            random.shuffle(im_triplets)
 
             # del images_array, indices, distances, feats
             # gc.collect()
@@ -416,26 +411,28 @@ class LandmarkTripletGenerator():
                                          rotation_range=5,
                                          width_shift_range=0.2,
                                          height_shift_range=0.2,
-                                         shear_range=0.2,
-                                         zoom_range=0.5,
-                                         brightness_range=[0.8, 2.0],
+                                         shear_range=0.05,
+                                         zoom_range=[0.6, 1.5],
+                                         brightness_range=[0.4, 1.6],
                                          horizontal_flip=False,
                                          fill_mode='nearest')
 
             for page in range(pages):
                 triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+                losses_out = losses[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
 
                 anchors = np.array([t[0] for t in triplets_out])
                 positives = np.array([t[1] for t in triplets_out])
                 # augment positives
 
-                #positives = next(
-                #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
-                #                 batch_size=self.minibatch_size, shuffle=False))
+                if self.use_positives_augmentation:
+                    positives = next(
+                        datagen.flow(np.array([restore(x) for x in positives]),
+                                     batch_size=self.minibatch_size, shuffle=False))
 
                 negatives = np.array([t[2] for t in triplets_out])
 
-                yield [anchors, positives, negatives], np.array(losses)  # , [y_fake]*3
+                yield [anchors, positives, negatives], np.array(losses_out)  # , [y_fake]*3
 
 
 def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
@@ -564,13 +561,17 @@ def show_triplet(triplet):
     fig = plt.figure(figsize=(10, 10))
     for i, t in enumerate(triplet):
         fig.add_subplot(1, 3, i + 1)
-        plt.imshow(t * 0.5 + 0.5)
+        t = t.astype('int')
+        plt.imshow(t)
 
-    plt.savefig("triplets/triplet{}.jpg".format(random.randint(1, 100000)))
+    plt.show()
+    # plt.savefig("triplets/triplet{}.jpg".format(random.randint(1, 100000)))
     print("Triplet saved")
+    time.sleep(5)
+
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def main():
@@ -598,7 +599,7 @@ def main():
         print("Network name not valid.")
 
     vgg_netvlad = my_model.build_netvladmodel()
-    weight_name = "weights/best_model.h5"
+    weight_name = "best_model.h5"
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
@@ -619,20 +620,20 @@ def main():
             print("Triplet loss: ", y[i])
             if y[i] > 0.1:
                 print("Hard triplet")
-            else:
-                descs = vgg_netvlad.predict(np.array([a[i], p[i], n[i]]))
-                a_desc = descs[0]
-                p_desc = descs[1]
-                n_desc = descs[2]
 
-                alpha = 0.1
-                d_a_p = np.linalg.norm(a_desc - p_desc)
-                d_a_n = np.linalg.norm(a_desc - n_desc)
+            descs = vgg_netvlad.predict(np.array([a[i], p[i], n[i]]))
+            a_desc = descs[0]
+            p_desc = descs[1]
+            n_desc = descs[2]
 
-                loss = alpha + d_a_p**2 - d_a_n**2
+            alpha = 0.1
+            d_a_p = np.linalg.norm(a_desc - p_desc, ord=2)
+            d_a_n = np.linalg.norm(a_desc - n_desc, ord=2)
 
-                print("Semi-hard triplet. New loss: ", loss)
+            loss = alpha + d_a_p ** 2 - d_a_n ** 2
 
+            print("Semi-hard triplet. New loss: ", loss)
+            print("")
             show_triplet([restore(a[i]), restore(p[i]), restore(n[i])])
 
 

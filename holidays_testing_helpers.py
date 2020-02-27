@@ -1,14 +1,27 @@
 import math
 import os
-from PIL import Image
+
 import PIL
 import matplotlib.pyplot as plt
 import numpy as np
-from keras.applications.vgg16 import preprocess_input
-from keras.preprocessing import image
 import yaml
+from PIL import Image
+from keras.preprocessing import image
 
 import paths
+
+
+def preprocess_input(x):
+    # RGB -> BGR
+    x = x[:,:, [2,1,0]]
+    mean = [103.939, 116.779, 123.68]
+
+    x[:, :, 0] -= mean[0]
+    x[:, :, 1] -= mean[1]
+    x[:, :, 2] -= mean[2]
+
+    # return x
+
 
 def get_imlist_(path="holidays_small_2"):
     imnames = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]

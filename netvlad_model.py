@@ -1,3 +1,5 @@
+import gc
+
 import numpy as np
 import tensorflow as tf
 import vis.utils.utils
@@ -6,10 +8,13 @@ from keras import layers
 from keras.applications import VGG16, ResNet50
 from keras.layers import Input, Reshape, concatenate, MaxPool2D
 from keras.models import Model
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.decomposition import PCA
 
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
-
+from sklearn.preprocessing import normalize
+from keras import backend as K
 
 class NetVladBase:
     input_shape = (336, 336, 3)
@@ -19,21 +24,22 @@ class NetVladBase:
         self.n_cluster = kwargs['n_clusters']
         self.middle_pca = kwargs['middle_pca']
         self.output_layer = kwargs['output_layer']
+        self.n_splits = kwargs['split_vlad']
 
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
 
-        self.regularizer = tf.keras.regularizers.l2(0.00001)
+        self.regularizer = tf.keras.regularizers.l2(0.001)
 
     def build_base_model(self, backbone):
         # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
-        # self.n_filters = out.shape[3]
-        self.n_filters = 512
+        self.n_filters = int(out.shape[-1])
+        # self.n_filters = 2048
 
-        pool_1 = MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
-        pool_2 = MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
+        pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
+        pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
 
         out_reshaped = Reshape((-1, self.n_filters))(out)
         pool_1_reshaped = Reshape((-1, self.n_filters))(pool_1)
@@ -53,8 +59,25 @@ class NetVladBase:
 
             self.n_filters = pool_2_reshaped.shape[2]
 
-        out = layers.Concatenate(axis=1)([pool_1_reshaped, pool_2_reshaped])
-        self.base_model = Model(backbone.input, out)
+        if self.poolings['active']:
+            out = layers.Concatenate(axis=1)([pool_1_reshaped, pool_2_reshaped])
+        else:
+            out = out_reshaped
+
+        out = L2NormLayer()(out)
+
+        assert self.n_filters % self.n_splits == 0
+        self.split_dimension = self.n_filters // self.n_splits
+
+        self.out_splits = []
+
+        for i in range(self.n_splits):
+            split_i = layers.Lambda(lambda x: x[:, :, i*self.split_dimension:(i+1)*self.split_dimension])(out)
+            self.out_splits.append(split_i)
+            print("Out shape: {}, split shape: {}".format(out.shape, split_i.shape))
+
+        self.base_model = Model(backbone.input, [split for split in self.out_splits])
+        self.base_model.summary()
         self.siamese_model = None
         self.images_input = None
         self.filter_l = None  # useless, just for compatibility with netvlad implementation
@@ -79,36 +102,43 @@ class NetVladBase:
         return Model(inputs=self.images_input, output=flatten)
 
     def build_netvladmodel(self, kmeans=None):
-        self.images_input = Input(shape=self.input_shape)
 
-        self.anchor = Input(shape=self.input_shape)
-        self.positive = Input(shape=self.input_shape)
-        self.negative = Input(shape=self.input_shape)
+        netvlad_out = []
+        self.netvlad = []
 
+        for split in self.out_splits:
+            feature_size = self.n_filters
 
-        feature_size = self.n_filters
+            if self.middle_pca['active']:
+                compression_dim = self.middle_pca['dim']
+                pca = layers.Dense(compression_dim)
+                self.pca = pca
+                model_out = layers.Dropout(0.2)(self.base_model.output)
+                pca = pca(model_out)
+                l2normalization = L2NormLayer()(pca)
 
-        if self.middle_pca['active']:
-            compression_dim = self.middle_pca['dim']
-            pca = layers.Dense(compression_dim)
-            self.pca = pca
-            model_out = layers.Dropout(0.2)(self.base_model.output)
-            pca = pca(model_out)
-            l2normalization = L2NormLayer()(pca)
-            
-            feature_size = compression_dim
+                feature_size = compression_dim
+            else:
+                # l2normalization = L2NormLayer()(split)
+                l2normalization = split
+                # l2normalization = self.base_model.output
+
+            netvlad = NetVLAD(feature_size=self.split_dimension, max_samples=0,
+                              cluster_size=self.n_cluster)  # max samples is useless
+
+            self.netvlad += [netvlad]
+
+            netvlad_i = netvlad(l2normalization)
+
+            netvlad_out.append(netvlad_i)
+
+        if len(netvlad_out) > 1:
+            netvlad_base = Model(self.base_model.input, L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
         else:
-            l2normalization = L2NormLayer()(self.base_model.output)
-            # l2normalization = self.base_model.output
-
-        netvlad = NetVLAD(feature_size=feature_size, max_samples=0,
-                          cluster_size=self.n_cluster)  # max samples is useless
-        self.netvlad = netvlad
-        netvlad = netvlad(l2normalization)
-
-        netvlad_base = Model(self.base_model.input, netvlad)
+            netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
         self.netvlad_base = netvlad_base
 
+        self.netvlad_base.summary()
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
 
@@ -116,6 +146,12 @@ class NetVladBase:
         return self.siamese_model
 
     def get_siamese_network(self):
+        self.images_input = Input(shape=self.input_shape)
+
+        self.anchor = Input(shape=self.input_shape)
+        self.positive = Input(shape=self.input_shape)
+        self.negative = Input(shape=self.input_shape)
+
         netvlad_a = self.netvlad_base([self.anchor])
         netvlad_p = self.netvlad_base([self.positive])
         netvlad_n = self.netvlad_base([self.negative])
@@ -133,8 +169,8 @@ class NetVladBase:
         else:
             print("WARNING mid pca is not active")
 
-    def set_netvlad_weights(self, kmeans):
-        netvlad_ = self.netvlad
+    def set_netvlad_weights(self, kmeans, split_index=0):
+        netvlad_ = self.netvlad[split_index]
         weights_netvlad = netvlad_.get_weights()
         # %%
         cluster_weights = kmeans.cluster_centers_
@@ -160,6 +196,39 @@ class NetVladBase:
     def get_netvlad_extractor(self):
         return self.netvlad_base
 
+    def train_kmeans(self, kmeans_generator):
+        print("Predicting local features for k-means.")
+        all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30, verbose=1)
+
+        if type(all_descs) is not list:
+            all_descs = [all_descs]
+        for i, split in enumerate(all_descs):
+            locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in split)).astype('float32')
+
+            print()
+            print("Sampling local features ", i)
+
+            np.random.shuffle(locals)
+
+            if self.middle_pca['pretrain'] and self.middle_pca['active']:
+                print("Training PCA")
+                pca = PCA(self.middle_pca['dim'])
+                locals = pca.fit_transform(locals)
+                self.set_mid_pca_weights(pca)
+            print("Locals extracted: {}".format(locals.shape))
+
+            n_clust = self.n_cluster
+
+            locals = normalize(locals, axis=1)
+
+            print("Fitting k-means")
+            kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
+
+            print("Initializing NetVLAD")
+            self.set_netvlad_weights(kmeans, i)
+
+        del all_descs
+        gc.collect()
 
 class NetVLADSiameseModel(NetVladBase):
     def __init__(self, **kwargs):

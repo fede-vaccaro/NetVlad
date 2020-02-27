@@ -112,7 +112,7 @@ elif net_name == "resnet":
 else:
     print("Network name not valid.")
 
-vgg, output_shape = my_model.get_feature_extractor(verbose=True)
+vgg, output_shape = my_model.get_feature_extractor(verbose=False)
 
 vgg_netvlad = my_model.build_netvladmodel()
 vgg_netvlad.summary()
@@ -132,35 +132,7 @@ if train_kmeans:
         class_mode=None,
         interpolation='bilinear', seed=4242)
 
-    print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=kmeans_generator, steps=30, verbose=1)
-    print("All descs shape: ", all_descs.shape)
-
-    locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in all_descs)).astype('float32')
-
-    print("Sampling local features")
-
-    np.random.shuffle(locals)
-
-    if middle_pca['pretrain'] and middle_pca['active']:
-        print("Training PCA")
-        pca = PCA(middle_pca['dim'])
-        locals = pca.fit_transform(locals)
-        my_model.set_mid_pca_weights(pca)
-    print("Locals extracted: {}".format(locals.shape))
-
-    n_clust = my_model.n_cluster
-
-    locals = normalize(locals, axis=1)
-
-    print("Fitting k-means")
-    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
-
-    print("Initializing NetVLAD")
-    my_model.set_netvlad_weights(kmeans)
-
-    del all_descs
-    gc.collect()
+    my_model.train_kmeans(kmeans_generator)
 
 if train:
     steps_per_epoch = steps_per_epoch
@@ -188,7 +160,7 @@ if train:
                                                          model=my_model.get_netvlad_extractor(),
                                                          mining_batch_size=mining_batch_size,
                                                          minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                         threshold=threshold)
+                                                         threshold=threshold, use_positives_augmentation=True)
 
     train_generator = kmeans_generator.generator()
 
@@ -282,6 +254,8 @@ if train:
                 print("Optimizer weights restarted.")
 
         print("Validation loss: {}\n".format(val_loss))
+        print("Training loss: {}\n".format(loss))
+
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 

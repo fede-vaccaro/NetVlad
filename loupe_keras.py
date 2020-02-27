@@ -175,7 +175,7 @@ class NetVLAD(layers.Layer):
 
         vlad = tf.nn.l2_normalize(vlad, 1)
         vlad = tf.reshape(vlad, [-1, self.cluster_size * self.feature_size])
-        vlad = tf.nn.l2_normalize(vlad, 1)
+        # vlad = tf.nn.l2_normalize(vlad, 1)
         # vlad = K.dot(vlad, self.hidden1_weights)
 
         return vlad
