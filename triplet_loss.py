@@ -48,6 +48,21 @@ class TripletLossLayer(Layer):
         self.add_loss(loss)
         return loss
 
+class TripletL2LossLayer(Layer):
+    def __init__(self, alpha=0.1, **kwargs):
+        self.alpha = alpha
+        super(TripletL2LossLayer, self).__init__(**kwargs)
+
+    def triplet_loss(self, inputs):
+        anchor, positive, negative = inputs
+        p_dist = K.sum(K.square(anchor - positive), axis=-1)
+        n_dist = K.sum(K.square(anchor - negative), axis=-1)
+        return K.mean(K.maximum(K.sqrt(p_dist) - K.sqrt(n_dist) + self.alpha, 0), axis=0)
+
+    def call(self, inputs):
+        loss = self.triplet_loss(inputs)
+        self.add_loss(loss)
+        return loss
 
 class L2NormLayer(Layer):
     def __init__(self, **kwargs):
