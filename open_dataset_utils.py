@@ -352,16 +352,16 @@ class LandmarkTripletGenerator():
                             r_label == anchor_label):  # scorre finchè non trova il primo negativo
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
-                        if j > 1:
-                            j_neg = j
-                        else:
-                            break
+                        j_neg = j
                         if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
                             j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
+                    if (j_pos is not -1) and (j_neg is not -1):
+                        if not (j_pos - j_neg < self.threshold):
+                            j_neg = j_pos - 1
+
                         # if (j_pos is not -1) and (j_neg is not -1):
                         triplet = row[0], row[j_pos], row[j_neg], r_label
 
@@ -371,11 +371,24 @@ class LandmarkTripletGenerator():
                         loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
                         loss_ = 0.1 + d_a_p ** 2 - d_a_n ** 2
 
-                        if self.loss_min < loss < self.loss_max:
-                            # print(loss)
-                            triplets.append(triplet)
-                            losses.append(loss)
+                        # print(loss)
+                        triplets.append(triplet)
+                        losses.append(loss)
                         break
+                    # elif (j == indices.shape[0] - 1) and (j_neg is not -1) and (j_neg > 1):
+                    #     j_pos = j_neg - 1
+                    #     triplet = row[0], row[j_pos], row[j_neg], r_label
+                    #
+                    #     d_a_p = distances[i][j_pos]
+                    #     d_a_n = distances[i][j_neg]
+                    #
+                    #     loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
+                    #     loss_ = 0.1 + d_a_p ** 2 - d_a_n ** 2
+                    #
+                    #     # print(loss)
+                    #     triplets.append(triplet)
+                    #     losses.append(loss)
+                    #     break
 
             class_set = []
             selected_triplets = []
@@ -383,7 +396,8 @@ class LandmarkTripletGenerator():
 
             for i, t in enumerate(triplets):
                 label = t[3]
-                if label in class_set:
+                if False:
+                #if label in class_set:
                     continue
                 else:
                     selected_triplets += [t[:3]]
@@ -397,6 +411,12 @@ class LandmarkTripletGenerator():
                 print("Different classes: {}".format(len(class_set)))
 
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
+
+            c = list(zip(im_triplets, losses))
+
+            random.shuffle(c)
+
+            im_triplets, losses = zip(*c)
 
             # del images_array, indices, distances, feats
             # gc.collect()
@@ -613,7 +633,7 @@ def main():
                                                   model=vgg_netvlad,
                                                   mining_batch_size=2048,
                                                   minibatch_size=6, semi_hard_prob=0.0,
-                                                  threshold=200, verbose=True)
+                                                  threshold=300, verbose=True)
 
     train_generator = landmark_generator.generator()
 
