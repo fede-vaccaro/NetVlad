@@ -51,12 +51,12 @@ def get_txtlist(path):
 
 def open_img(path, input_shape=nm.NetVladBase.input_shape):
     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
-    # img = (image.img_to_array(img) - 127.5) / 127.5
     img = image.img_to_array(img)
     img = preprocess_input(img)
     img_id = path.split('/')[-1]
 
     return img, img_id
+
 
 
 def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=nm.NetVladBase.input_shape,
@@ -246,9 +246,11 @@ class Loader(threading.Thread):
             imgs = []
             for i, c in enumerate(picked_classes):
                 images_in_c = os.listdir(train_dir + "/" + c)
-                # images_in_c = zip(images_in_c, [i]*len(images_in_c), [c]*len(images_in_c))
+                num_samples_in_c = len(images_in_c)
+                random.shuffle(images_in_c)
+                images_in_c = images_in_c[:min(batch_size // n_classes, num_samples_in_c)]
                 for image_in_c in images_in_c:
-                    imgs += [(image_in_c, i, c)]
+                   imgs += [(image_in_c, i, c)]
             # randomize the image list
             random.shuffle(imgs)
             # pick the first batch_size (if enough)
@@ -293,7 +295,7 @@ class LandmarkTripletGenerator():
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 4
+        n_classes = mining_batch_size // 6
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         if use_multiprocessing:
@@ -308,7 +310,7 @@ class LandmarkTripletGenerator():
         self.semi_hard_prob = semi_hard_prob
 
         self.loss_min = 0.00000
-        self.loss_max = 0.20000
+        self.loss_max = 0.30000
 
         self.use_positives_augmentation = use_positives_augmentation
 
@@ -351,27 +353,41 @@ class LandmarkTripletGenerator():
                             r_label == anchor_label):  # scorre finchè non trova il primo negativo
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
-                        if j > 1:
-                            j_neg = j
-                        else:
-                            break
-                        if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
-                            j_pos = j_neg - 1
+                        j_neg = j
+                        # if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
+                        #    j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
+                    if (j_pos is not -1) and (j_neg is not -1):
+                        # for balancing the gradient
+                        if not (j_pos - j_neg < self.threshold):
+                            j_neg = j_pos - 1
+
                         # if (j_pos is not -1) and (j_neg is not -1):
                         triplet = row[0], row[j_pos], row[j_neg], r_label
 
                         d_a_p = distances[i][j_pos]
                         d_a_n = distances[i][j_neg]
 
+                        loss = 0.1 + d_a_p - d_a_n
+
+                        # print(loss)
+                        if self.loss_min < loss < self.loss_max:
+                            triplets.append(triplet)
+                            losses.append(loss)
+                        break
+                    # else generate a semi-hard triplet
+                    elif (j == indices.shape[0] - 1) and (j_neg is not -1) and (j_neg > 1):
+                        j_pos = j_neg - 1
+                        triplet = row[0], row[j_pos], row[j_neg], r_label
+
+                        d_a_p = distances[i][j_pos]
+                        d_a_n = distances[i][j_neg]
+
                         loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
-                        loss_ = 0.1 + d_a_p ** 2 - d_a_n ** 2
 
                         if self.loss_min < loss < self.loss_max:
-                            # print(loss)
                             triplets.append(triplet)
                             losses.append(loss)
                         break
@@ -382,7 +398,8 @@ class LandmarkTripletGenerator():
 
             for i, t in enumerate(triplets):
                 label = t[3]
-                if label in class_set:
+                if False:
+                #if label in class_set:
                     continue
                 else:
                     selected_triplets += [t[:3]]
@@ -396,6 +413,12 @@ class LandmarkTripletGenerator():
                 print("Different classes: {}".format(len(class_set)))
 
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
+
+            c = list(zip(im_triplets, losses))
+
+            random.shuffle(c)
+
+            im_triplets, losses = zip(*c)
 
             # del images_array, indices, distances, feats
             # gc.collect()
@@ -604,11 +627,15 @@ def main():
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
 
-    landmark_generator = LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+    from keras.applications import ResNet50
+
+    # vgg_netvlad = ResNet50(input_shape=(336,336,3), weights='imagenet', pooling='avg', include_top=False)
+
+    landmark_generator = LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
                                                   model=vgg_netvlad,
                                                   mining_batch_size=2048,
-                                                  minibatch_size=6, semi_hard_prob=1.0,
-                                                  threshold=5, verbose=True)
+                                                  minibatch_size=6, semi_hard_prob=0.0,
+                                                  threshold=300, verbose=True)
 
     train_generator = landmark_generator.generator()
 
@@ -622,6 +649,7 @@ def main():
                 print("Hard triplet")
 
             descs = vgg_netvlad.predict(np.array([a[i], p[i], n[i]]))
+            descs = normalize(descs)
             a_desc = descs[0]
             p_desc = descs[1]
             n_desc = descs[2]

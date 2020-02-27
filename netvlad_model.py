@@ -35,11 +35,11 @@ class NetVladBase:
         # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
-        self.n_filters = int(out.shape[-1])
-        # self.n_filters = 2048
+        # self.n_filters = int(out.shape[-1])
+        self.n_filters = 512
 
-        pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
-        pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
+        pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=2, padding='valid')(out)
+        pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=2, padding='valid')(out)
 
         out_reshaped = Reshape((-1, self.n_filters))(out)
         pool_1_reshaped = Reshape((-1, self.n_filters))(pool_1)

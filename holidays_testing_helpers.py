@@ -2,25 +2,29 @@ import math
 import os
 
 import PIL
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
 from PIL import Image
 from keras.preprocessing import image
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import normalize
 
 import paths
+import utils
 
 
 def preprocess_input(x):
     # RGB -> BGR
-    x = x[:,:, [2,1,0]]
+    x = x[:, :, [2, 1, 0]]
     mean = [103.939, 116.779, 123.68]
 
     x[:, :, 0] -= mean[0]
     x[:, :, 1] -= mean[1]
     x[:, :, 2] -= mean[2]
 
-    # return x
+    return x
 
 
 def get_imlist_(path="holidays_small_2"):
@@ -156,3 +160,69 @@ def show_result(display_idx, query_imids, imnames, nqueries=10, nresults=10, ts=
         # print(qno, (imfiles))
         plt.imshow(montage(imfiles, thumb_size=ts, ok=oks, shape=(1, nres)))
         plt.show()
+
+
+class HolidaysTester:
+    img_tensor = None
+
+    def test_holidays(self, side_res, model, use_power_norm=False, use_multi_resolution=False, rotate_holidays=True,
+                      verbose=False):
+        imnames = get_imlist_()
+        query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
+        if verbose:
+            print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
+        base_resolution = (side_res, side_res, 3)
+        input_shape_1 = (768, 768, 3)
+        input_shape_2 = (504, 504, 3)
+        input_shape_3 = (224, 224, 3)
+        input_shapes = [input_shape_1, input_shape_2, input_shape_3]
+        if verbose:
+            print("Loading images")
+        if self.img_tensor is None:
+            self.img_tensor = create_image_dict(get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
+                                           rotate=rotate_holidays)
+        else:
+            print("Using preallocated image tensor")
+
+        if verbose:
+            print("Extracting features")
+
+        verbose_ = 0
+        if verbose:
+            verbose_ = 1
+        all_feats = model.predict(self.img_tensor, verbose=verbose_, batch_size=3)
+        if use_multi_resolution:
+            for shape in input_shapes:
+                img_tensor = create_image_dict(get_imlist(paths.holidays_pic_path), input_shape=shape,
+                                               rotate=True)
+                batch_size = 32
+                if shape[0] >= 768:
+                    batch_size = 12
+
+                all_feats += model.predict(img_tensor, verbose=1, batch_size=batch_size)
+        all_feats = normalize(all_feats)
+        use_pca = False
+        if use_pca:
+            n_components = 2048
+
+            pca_dataset = h5py.File("pca_{}.h5".format(n_components), 'r')
+            mean = pca_dataset['mean'][:]
+            components = pca_dataset['components'][:]
+            explained_variance = pca_dataset['explained_variance'][:]
+            pca_dataset.close()
+
+            all_feats = utils.transform(all_feats, mean, components, explained_variance, whiten=True, pow_whiten=0.5)
+        if use_power_norm:
+            all_feats_sign = np.sign(all_feats)
+            all_feats = np.power(np.abs(all_feats), 0.5)
+            all_feats = np.multiply(all_feats, all_feats_sign)
+        query_feats = all_feats[query_imids]
+        nbrs = NearestNeighbors(n_neighbors=1491, metric='cosine').fit(all_feats)
+        distances, indices = nbrs.kneighbors(query_feats)
+        meanAP = mAP(query_imids, indices, imnames=imnames)
+        if verbose:
+            print('mean AP = %.3f' % meanAP)
+        return meanAP
+
+
+tester = HolidaysTester()

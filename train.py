@@ -1,6 +1,5 @@
 # %%
 import argparse
-import gc
 import os
 import time
 from math import ceil
@@ -8,25 +7,20 @@ from math import ceil
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-from keras import optimizers, Model
 from keras import backend as K
+from keras import optimizers, Model
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.decomposition import PCA
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import normalize
 # from keras_radam import RAdam
 # from keras_radam.training import RAdamOptimizer
 from tqdm import tqdm
-import utils
-import clr_callback as clr
+
 import holidays_testing_helpers as hth
 import netvlad_model
 import open_dataset_utils as my_utils
 import paths
+import utils
 from triplet_loss import TripletLossLayer
-import h5py
 
 ap = argparse.ArgumentParser()
 
@@ -128,7 +122,7 @@ if train_kmeans:
     kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
         paths.landmarks_path,
         target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-        batch_size=128//4,
+        batch_size=128 // 4,
         class_mode=None,
         interpolation='bilinear', seed=4242)
 
@@ -142,15 +136,12 @@ if train:
     start_epoch = int(args['start_epoch'])
     vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
 
-    lr = 1e-5
-    cyclic = clr.CyclicLR(base_lr=1e-6, max_lr=1e-5, mode='exp_range', gamma=0.99993)
-
     if model_name is not None:
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
         vgg_netvlad.load_weights(model_name)
         # vgg_netvlad.summary()
 
-    opt = optimizers.Adam(lr=lr)
+    opt = optimizers.Adam(lr=1e-5)
     vgg_netvlad.compile(opt)
 
     steps_per_epoch_val = ceil(1491
@@ -160,7 +151,7 @@ if train:
                                                          model=my_model.get_netvlad_extractor(),
                                                          mining_batch_size=mining_batch_size,
                                                          minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                         threshold=threshold, use_positives_augmentation=True)
+                                                         threshold=threshold, use_positives_augmentation=False)
 
     train_generator = kmeans_generator.generator()
 
@@ -170,6 +161,7 @@ if train:
 
     losses = []
     val_losses = []
+    val_maps = []
 
     not_improving_counter = 0
     not_improving_thresh = 15
@@ -185,6 +177,13 @@ if train:
 
     starting_val_loss = np.array(val_loss_e).mean()
     print("Starting validation loss: ", starting_val_loss)
+
+    starting_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
+                                     use_multi_resolution=use_multi_resolution,
+                                     rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
+
+    print("Starting mAP: ", starting_map)
+
     for e in range(epochs):
         t0 = time.time()
 
@@ -195,7 +194,8 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = utils.lr_warmup(it, min_lr=max_lr * 0.1, max_lr=max_lr, wu_steps=warm_up_steps)
+                lr = utils.lr_warmup(it, min_lr=1.e-6, max_lr=10.e-6, exp_decay=True,
+                                     exp_decay_factor=np.log(0.1) / (200 * 400))
             else:
                 lr = max_lr
 
@@ -222,25 +222,37 @@ if train:
             val_loss_e.append(val_loss_s)
 
         val_loss = np.array(val_loss_e).mean()
+        val_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
+                                    use_multi_resolution=use_multi_resolution,
+                                    rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
 
         min_val_loss = starting_val_loss
+        min_val_map = starting_map
 
         if e > 0:
             min_val_loss = np.min(val_losses)
+            min_val_map = np.min(val_maps)
 
         val_losses.append(val_loss)
+        val_maps.append(val_map)
 
-        if val_loss < min_val_loss:
-            model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_loss, description)
-            print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_loss, model_name))
+        # if val_loss < min_val_loss:
+        #     model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_loss, description)
+        #     print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_loss, model_name))
+        #     vgg_netvlad.save_weights(model_name)
+        #     not_improving_counter = 0
+        if val_map > min_val_map:
+            model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_map, description)
+            print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_map, model_name))
             vgg_netvlad.save_weights(model_name)
             not_improving_counter = 0
         else:
-            print("Val loss ({0:.4f}) did not improve from {1:.4f}".format(val_loss, min_val_loss))
+            print("Val loss ({0:.4f}) did not improve from {1:.4f}".format(val_map, min_val_map))
             not_improving_counter += 1
             print("Val loss does not improve since {} epochs".format(not_improving_counter))
             if e % 5 == 0:
-                model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_loss, description)
+                # model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_loss, description)
+                model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_map, description)
                 vgg_netvlad.save_weights(model_name)
                 print("Saving model to: {} (checkpoint)".format(model_name))
             # if not_improving_counter == not_improving_thresh:
@@ -253,6 +265,7 @@ if train:
                 not_improving_counter = 0
                 print("Optimizer weights restarted.")
 
+        print("Validation mAP: {}\n".format(val_map))
         print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
 
@@ -266,6 +279,7 @@ if train:
     print("Saved model to disk: ", model_name)
 
     plt.figure(figsize=(8, 8))
+    plt.plot(val_maps, label='validation map')
     plt.plot(losses, label='training loss')
     plt.plot(val_losses, label='validation loss')
     plt.legend()
@@ -281,59 +295,5 @@ if test and model_name is not None:
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 
-imnames = hth.get_imlist_()
-query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
-print('tot images = %d, query images = %d' % (len(imnames), len(query_imids)))
-
-base_resolution = (side_res, side_res, 3)
-
-input_shape_1 = (768, 768, 3)
-input_shape_2 = (504, 504, 3)
-input_shape_3 = (224, 224, 3)
-
-input_shapes = [input_shape_1, input_shape_2, input_shape_3]
-
-print("Loading images")
-img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
-                                   rotate=rotate_holidays)
-print("Extracting features")
-all_feats = vgg_netvlad.predict(img_tensor, verbose=1, batch_size=3)
-
-if use_multi_resolution:
-    for shape in input_shapes:
-        img_tensor = hth.create_image_dict(hth.get_imlist(paths.holidays_pic_path), input_shape=shape,
-                                           rotate=True)
-        batch_size = 32
-        if shape[0] >= 768:
-            batch_size = 12
-
-        all_feats += vgg_netvlad.predict(img_tensor, verbose=1, batch_size=batch_size)
-
-all_feats = normalize(all_feats)
-
-use_pca = False
-if use_pca:
-    n_components = 2048
-
-    pca_dataset = h5py.File("pca_{}.h5".format(n_components), 'r')
-    mean = pca_dataset['mean'][:]
-    components = pca_dataset['components'][:]
-    explained_variance = pca_dataset['explained_variance'][:]
-    pca_dataset.close()
-
-    all_feats = utils.transform(all_feats, mean, components, explained_variance, whiten=True, pow_whiten=0.5)
-
-if use_power_norm:
-    all_feats_sign = np.sign(all_feats)
-    all_feats = np.power(np.abs(all_feats), 0.5)
-    all_feats = np.multiply(all_feats, all_feats_sign)
-
-
-query_feats = all_feats[query_imids]
-
-nbrs = NearestNeighbors(n_neighbors=1491, metric='cosine').fit(all_feats)
-distances, indices = nbrs.kneighbors(query_feats)
-
-print('mean AP = %.3f' % hth.mAP(query_imids, indices, imnames=imnames))
-perfect_result = hth.make_perfect_holidays_result(imnames, query_imids)
-print('Perfect mean AP = %.3f' % hth.mAP(query_imids, perfect_result, imnames=imnames))
+hth.test_holidays(model=vgg_netvlad, side_res=side_res, use_multi_resolution=use_multi_resolution,
+                  rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=True)
