@@ -25,7 +25,7 @@ import holidays_testing_helpers as hth
 import netvlad_model
 import open_dataset_utils as my_utils
 import paths
-from triplet_loss import TripletLossLayer
+from triplet_loss import TripletLossLayer, TripletL2LossLayer
 import h5py
 
 ap = argparse.ArgumentParser()
@@ -114,13 +114,11 @@ else:
     print("Network name not valid.")
 
 
-vgg, output_shape = my_model.get_feature_extractor(verbose=True)
-
 vgg_netvlad = my_model.build_netvladmodel()
-vgg_netvlad.summary()
+# vgg_netvlad = my_model.get_netvlad_extractor()
+# vgg_netvlad.summary()
 
 print("Netvlad output shape: ", vgg_netvlad.output_shape)
-print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
 # train kmeans disabled for GeM
@@ -131,52 +129,6 @@ if test and model_name is not None:
     print("Loading ", model_name)
     vgg_netvlad.load_weights(model_name)
 
-backbone = my_model.get_netvlad_extractor()
-
-
-my_model_netvlad = netvlad_model.NetVladResnet(**network_conf)
-my_model_netvlad.build_base_model(backbone=Model(backbone.input, backbone.get_layer('add_16').output))
-my_model_netvlad.build_netvladmodel()
-
-my_model = my_model_netvlad
-
-if train_kmeans:
-    kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
-        paths.landmarks_path,
-        target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-        batch_size=128,
-        class_mode=None,
-        interpolation='bilinear', seed=4242)
-
-    print("Predicting local features for k-means. Output shape: ", output_shape)
-    all_descs = vgg.predict_generator(generator=kmeans_generator, steps=30, verbose=1)
-    print("All descs shape: ", all_descs.shape)
-
-    locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in all_descs)).astype('float32')
-
-    print("Sampling local features")
-
-    np.random.shuffle(locals)
-
-    if middle_pca['pretrain'] and middle_pca['active']:
-        print("Training PCA")
-        pca = PCA(middle_pca['dim'])
-        locals = pca.fit_transform(locals)
-        my_model.set_mid_pca_weights(pca)
-    print("Locals extracted: {}".format(locals.shape))
-
-    n_clust = my_model.n_cluster
-
-    locals = normalize(locals, axis=1)
-
-    print("Fitting k-means")
-    kmeans = MiniBatchKMeans(n_clusters=n_clust).fit(locals)
-
-    print("Initializing NetVLAD")
-    my_model.set_netvlad_weights(kmeans)
-
-    del all_descs
-    gc.collect()
 
 if train:
     steps_per_epoch = steps_per_epoch
@@ -184,7 +136,7 @@ if train:
     vgg_netvlad.summary()
 
     start_epoch = int(args['start_epoch'])
-    vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
+    vgg_netvlad = Model(vgg_netvlad.input, TripletL2LossLayer(0.1)(vgg_netvlad.output))
 
     lr = 1e-5
     cyclic = clr.CyclicLR(base_lr=1e-6, max_lr=1e-5, mode='exp_range', gamma=0.99993)
@@ -200,7 +152,7 @@ if train:
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
 
-    kmeans_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+    kmeans_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
                                                          model=my_model.get_netvlad_extractor(),
                                                          mining_batch_size=mining_batch_size,
                                                          minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,

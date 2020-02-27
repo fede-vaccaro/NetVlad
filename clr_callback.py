@@ -1,5 +1,6 @@
-from keras.callbacks import *
 import numpy as np
+from keras.callbacks import *
+
 
 class CyclicLR(Callback):
     """This callback implements a cyclical learning rate policy (CLR).
@@ -186,25 +187,27 @@ def cosine_decay_with_warmup(global_step,
                                  learning_rate)
     return np.where(global_step > total_steps, 0.0, learning_rate)
 
+
 def main():
-    epochs = 100
-    steps_per_epoch = 200
+    epochs = 300
+    steps_per_epoch = 400
     lr_values = []
 
-    cyclic = CyclicLR(base_lr=1e-7, max_lr=1e-5, mode='exp_range', gamma=0.99995)
+    # cyclic = CyclicLR(base_lr=1e-7, max_lr=1e-5, mode='exp_range', gamma=0.99995)
 
-    for i in range(epochs*steps_per_epoch):
-        # lr_i = cosine_decay_with_warmup(total_steps=epochs*steps_per_epoch, global_step=i, learning_rate_base=1e-5, warmup_steps=40*steps_per_epoch, warmup_learning_rate=1e-6)
-        lr_i = cyclic.clr()
-        cyclic.clr_iterations = i
+    for i in range(epochs * steps_per_epoch):
+        lr_i = cosine_decay_with_warmup(total_steps=epochs * steps_per_epoch, global_step=i, learning_rate_base=0.5e-5,
+                                        warmup_steps=40 * steps_per_epoch, warmup_learning_rate=1e-6)
+        # lr_i = cyclic.clr()
+        # cyclic.clr_iterations = i
 
         lr_values.append(lr_i)
-
 
     import matplotlib.pyplot as plt
 
     plt.plot(lr_values)
     plt.show()
+
 
 if __name__ == "__main__":
     main()

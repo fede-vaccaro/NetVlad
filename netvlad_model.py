@@ -30,8 +30,8 @@ class NetVladBase:
         # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
-        # self.n_filters = out.shape[3]
-        self.n_filters = 512
+        self.n_filters = int(out.shape[-1])
+        # self.n_filters = 512
 
         pool_1 = MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
         pool_2 = MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
@@ -238,7 +238,7 @@ class NetVladResnet(NetVladBase):
 
 class GeMResnet(NetVladResnet):
     def build_netvladmodel(self, kmeans=None):
-        gem_out = gem.GeM(pool_size=11)(self.base_model.get_layer(self.output_layer).output)
+        gem_out = gem.GeM(pool_size=11, normalize=False)(self.base_model.get_layer(self.output_layer).output)
         gem_out = layers.Flatten()(gem_out)
         gem_out = L2NormLayer()(gem_out)
         self.netvlad_base = Model(self.base_model.input, gem_out)
