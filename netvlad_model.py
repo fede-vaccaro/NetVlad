@@ -6,15 +6,15 @@ import vis.utils.utils
 from keras import activations
 from keras import layers
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D
+from keras.layers import Input, Reshape, concatenate
 from keras.models import Model
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import normalize
 
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
-from sklearn.preprocessing import normalize
-from keras import backend as K
+
 
 class NetVladBase:
     input_shape = (336, 336, 3)
@@ -25,6 +25,7 @@ class NetVladBase:
         self.middle_pca = kwargs['middle_pca']
         self.output_layer = kwargs['output_layer']
         self.n_splits = kwargs['split_vlad']
+        self.post_pca = kwargs['post_pca']
 
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
@@ -72,7 +73,7 @@ class NetVladBase:
         self.out_splits = []
 
         for i in range(self.n_splits):
-            split_i = layers.Lambda(lambda x: x[:, :, i*self.split_dimension:(i+1)*self.split_dimension])(out)
+            split_i = layers.Lambda(lambda x: x[:, :, i * self.split_dimension:(i + 1) * self.split_dimension])(out)
             self.out_splits.append(split_i)
             print("Out shape: {}, split shape: {}".format(out.shape, split_i.shape))
 
@@ -133,12 +134,22 @@ class NetVladBase:
             netvlad_out.append(netvlad_i)
 
         if len(netvlad_out) > 1:
-            netvlad_base = Model(self.base_model.input, L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
+            out = concatenate([netvlad for netvlad in netvlad_out])
         else:
-            netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
-        self.netvlad_base = netvlad_base
+            out = netvlad_out[0]
 
-        self.netvlad_base.summary()
+        if self.post_pca['active']:
+            self.post_pca_layer = layers.Dense(self.post_pca['dim'], activation=None,
+                               kernel_regularizer=tf.keras.regularizers.l2(0.000005))
+            pca = self.post_pca_layer(out)
+
+        pca = L2NormLayer()(pca)
+        netvlad_base = Model(self.base_model.input, pca)
+
+        self.netvlad_inference_model = netvlad_base
+        self.netvlad_base = Model(self.base_model.input, out)
+
+        self.netvlad_inference_model.summary()
         if kmeans is not None:
             self.set_netvlad_weights(kmeans)
 
@@ -152,9 +163,9 @@ class NetVladBase:
         self.positive = Input(shape=self.input_shape)
         self.negative = Input(shape=self.input_shape)
 
-        netvlad_a = self.netvlad_base([self.anchor])
-        netvlad_p = self.netvlad_base([self.positive])
-        netvlad_n = self.netvlad_base([self.negative])
+        netvlad_a = self.netvlad_inference_model([self.anchor])
+        netvlad_p = self.netvlad_inference_model([self.positive])
+        netvlad_n = self.netvlad_inference_model([self.negative])
         siamese_model = Model(inputs=[self.anchor, self.positive, self.negative],
                               outputs=[netvlad_a, netvlad_p, netvlad_n])
         return siamese_model
@@ -194,11 +205,12 @@ class NetVladBase:
         netvlad_.set_weights(weights_netvlad)
 
     def get_netvlad_extractor(self):
-        return self.netvlad_base
+        return self.netvlad_inference_model
 
     def train_kmeans(self, kmeans_generator):
         print("Predicting local features for k-means.")
-        all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30, verbose=1)
+        all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30,
+                                                                                  verbose=1)
 
         if type(all_descs) is not list:
             all_descs = [all_descs]
@@ -229,6 +241,21 @@ class NetVladBase:
 
         del all_descs
         gc.collect()
+
+    def pretrain_pca(self, pca_generator):
+        print("Extracting descriptors for initializing PCA")
+        output_dim = self.n_cluster*self.n_filters
+        steps = output_dim//pca_generator.batch_size
+        all_descs = self.netvlad_base.predict_generator(generator=pca_generator, steps=steps,
+                                                                                  verbose=1)
+        post_pca = PCA(self.post_pca['dim'])
+        post_pca.fit(all_descs)
+        mean_ = post_pca.mean_
+        components_ = post_pca.components_
+
+        mean_ = -np.dot(mean_, components_.T)
+        self.post_pca_layer.set_weights([components_.T, mean_])
+
 
 class NetVLADSiameseModel(NetVladBase):
     def __init__(self, **kwargs):

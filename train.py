@@ -119,14 +119,17 @@ train_kmeans = (not test or test_kmeans) and model_name is None and not train_pc
 train = not test
 
 if train_kmeans:
-    kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+    init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
         paths.landmarks_path,
         target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
         batch_size=128 // 4,
         class_mode=None,
         interpolation='bilinear', seed=4242)
 
-    my_model.train_kmeans(kmeans_generator)
+    my_model.train_kmeans(init_generator)
+
+    if network_conf['post_pca']['active']:
+        my_model.pretrain_pca(init_generator)
 
 if train:
     steps_per_epoch = steps_per_epoch
@@ -147,20 +150,20 @@ if train:
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
 
-    kmeans_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
-                                                         model=my_model.get_netvlad_extractor(),
-                                                         mining_batch_size=mining_batch_size,
-                                                         minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                         threshold=threshold, use_positives_augmentation=False)
+    init_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
+                                                       model=my_model.get_netvlad_extractor(),
+                                                       mining_batch_size=mining_batch_size,
+                                                       minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
+                                                       threshold=threshold, use_positives_augmentation=False)
 
-    train_generator = kmeans_generator.generator()
+    train_generator = init_generator.generator()
 
     test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
                                                            model=my_model.get_netvlad_extractor(),
                                                            netbatch_size=minibatch_size)
 
     losses = []
-    val_losses = []
+    # val_losses = []
     val_maps = []
 
     not_improving_counter = 0
@@ -168,15 +171,15 @@ if train:
 
     description = train_description
 
-    val_loss_e = []
+    # val_loss_e = []
+    #
+    # for s in range(steps_per_epoch_val):
+    #     x_val, _ = next(test_generator)
+    #     val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+    #     val_loss_e.append(val_loss_s)
 
-    for s in range(steps_per_epoch_val):
-        x_val, _ = next(test_generator)
-        val_loss_s = vgg_netvlad.predict_on_batch(x_val)
-        val_loss_e.append(val_loss_s)
-
-    starting_val_loss = np.array(val_loss_e).mean()
-    print("Starting validation loss: ", starting_val_loss)
+    # starting_val_loss = np.array(val_loss_e).mean()
+    # print("Starting validation loss: ", starting_val_loss)
 
     starting_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
                                      use_multi_resolution=use_multi_resolution,
@@ -226,17 +229,14 @@ if train:
                                     use_multi_resolution=use_multi_resolution,
                                     rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
 
-        min_val_loss = starting_val_loss
         min_val_map = starting_map
 
         if e > 0:
-            min_val_loss = np.min(val_losses)
             min_val_map = np.max(val_maps)
         else:
             val_losses.append(min_val_loss)
             val_maps.append(min_val_map)
 
-        val_losses.append(val_loss)
         val_maps.append(val_map)
 
         # if val_loss < min_val_loss:
@@ -269,20 +269,20 @@ if train:
                 print("Optimizer weights restarted.")
 
         print("Validation mAP: {}\n".format(val_map))
-        print("Validation loss: {}\n".format(val_loss))
+        # print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
 
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 
-    kmeans_generator.loader.stop_loading()
+    init_generator.loader.stop_loading()
 
     model_name = "model_e{}_{}_.h5".format(epochs + start_epoch, description)
     vgg_netvlad.save_weights(model_name)
     print("Saved model to disk: ", model_name)
 
     plt.figure(figsize=(8, 8))
-    plt.plot(val_maps, label='validation map')
+    # plt.plot(val_maps, label='validation map')
     plt.plot(losses, label='training loss')
     plt.plot(val_losses, label='validation loss')
     plt.legend()
