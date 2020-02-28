@@ -20,7 +20,7 @@ import netvlad_model
 import open_dataset_utils as my_utils
 import paths
 import utils
-from triplet_loss import TripletLossLayer
+from triplet_loss import TripletL2LossLayer
 
 ap = argparse.ArgumentParser()
 
@@ -134,7 +134,7 @@ if train:
     vgg_netvlad.summary()
 
     start_epoch = int(args['start_epoch'])
-    vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
+    vgg_netvlad = Model(vgg_netvlad.input, TripletL2LossLayer(0.1)(vgg_netvlad.output))
 
     if model_name is not None:
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
@@ -147,7 +147,7 @@ if train:
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
 
-    kmeans_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+    kmeans_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
                                                          model=my_model.get_netvlad_extractor(),
                                                          mining_batch_size=mining_batch_size,
                                                          minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
@@ -194,7 +194,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = utils.lr_warmup(it, min_lr=1.e-6, max_lr=10.e-6, exp_decay=True,
+                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=10.e-6, exp_decay=True,
                                      exp_decay_factor=np.log(0.1) / (200 * 400))
             else:
                 lr = max_lr
@@ -231,7 +231,10 @@ if train:
 
         if e > 0:
             min_val_loss = np.min(val_losses)
-            min_val_map = np.min(val_maps)
+            min_val_map = np.max(val_maps)
+        else:
+            val_losses.append(min_val_loss)
+            val_maps.append(min_val_map)
 
         val_losses.append(val_loss)
         val_maps.append(val_map)

@@ -309,7 +309,7 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.00000
+        self.loss_min = 0.0
         self.loss_max = 0.30000
 
         self.use_positives_augmentation = use_positives_augmentation
@@ -353,43 +353,29 @@ class LandmarkTripletGenerator():
                             r_label == anchor_label):  # scorre finchè non trova il primo negativo
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
-                        j_neg = j
-                        # if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
-                        #    j_pos = j_neg - 1
+                        if j > 1:
+                            j_neg = j
+                        else:
+                            break
+                        if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
+                            j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    if (j_pos is not -1) and (j_neg is not -1):
-                        # for balancing the gradient
-                        if not (j_pos - j_neg < self.threshold):
-                            j_neg = j_pos - 1
-
-                        # if (j_pos is not -1) and (j_neg is not -1):
+                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
+                    # if (j_pos is not -1) and (j_neg is not -1):
                         triplet = row[0], row[j_pos], row[j_neg], r_label
 
                         d_a_p = distances[i][j_pos]
                         d_a_n = distances[i][j_neg]
 
-                        loss = 0.1 + d_a_p - d_a_n
-
-                        # print(loss)
-                        if self.loss_min < loss < self.loss_max:
-                            triplets.append(triplet)
-                            losses.append(loss)
-                        break
-                    # else generate a semi-hard triplet
-                    elif (j == indices.shape[0] - 1) and (j_neg is not -1) and (j_neg > 1):
-                        j_pos = j_neg - 1
-                        triplet = row[0], row[j_pos], row[j_neg], r_label
-
-                        d_a_p = distances[i][j_pos]
-                        d_a_n = distances[i][j_neg]
-
-                        loss = 0.1 + d_a_p ** 2 - d_a_n ** 2
+                        loss = 0.1 + d_a_p**2 - d_a_n**2
 
                         if self.loss_min < loss < self.loss_max:
+                            # print(loss)
                             triplets.append(triplet)
                             losses.append(loss)
+
                         break
 
             class_set = []
@@ -398,8 +384,7 @@ class LandmarkTripletGenerator():
 
             for i, t in enumerate(triplets):
                 label = t[3]
-                if False:
-                #if label in class_set:
+                if label in class_set:
                     continue
                 else:
                     selected_triplets += [t[:3]]
@@ -413,12 +398,6 @@ class LandmarkTripletGenerator():
                 print("Different classes: {}".format(len(class_set)))
 
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
-
-            c = list(zip(im_triplets, losses))
-
-            random.shuffle(c)
-
-            im_triplets, losses = zip(*c)
 
             # del images_array, indices, distances, feats
             # gc.collect()
@@ -442,20 +421,18 @@ class LandmarkTripletGenerator():
 
             for page in range(pages):
                 triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
-                losses_out = losses[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
 
                 anchors = np.array([t[0] for t in triplets_out])
                 positives = np.array([t[1] for t in triplets_out])
                 # augment positives
 
-                if self.use_positives_augmentation:
-                    positives = next(
-                        datagen.flow(np.array([restore(x) for x in positives]),
-                                     batch_size=self.minibatch_size, shuffle=False))
+                #positives = next(
+                #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
+                #                 batch_size=self.minibatch_size, shuffle=False))
 
                 negatives = np.array([t[2] for t in triplets_out])
 
-                yield [anchors, positives, negatives], np.array(losses_out)  # , [y_fake]*3
+                yield [anchors, positives, negatives], np.array(losses)  # , [y_fake]*3
 
 
 def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
