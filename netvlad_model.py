@@ -1,4 +1,5 @@
 import gc
+import os
 
 import numpy as np
 import tensorflow as tf
@@ -6,15 +7,16 @@ import vis.utils.utils
 from keras import activations
 from keras import layers
 from keras.applications import VGG16, ResNet50
-from keras.layers import Input, Reshape, concatenate, MaxPool2D
+from keras.layers import Input, Reshape, concatenate
 from keras.models import Model
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import normalize
 
+import paths
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
-from sklearn.preprocessing import normalize
-from keras import backend as K
+
 
 class NetVladBase:
     input_shape = (336, 336, 3)
@@ -35,8 +37,8 @@ class NetVladBase:
         # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
-        # self.n_filters = int(out.shape[-1])
-        self.n_filters = 512
+        self.n_filters = int(out.shape[-1])
+        # self.n_filters = 512
 
         pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=2, padding='valid')(out)
         pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=2, padding='valid')(out)
@@ -72,7 +74,7 @@ class NetVladBase:
         self.out_splits = []
 
         for i in range(self.n_splits):
-            split_i = layers.Lambda(lambda x: x[:, :, i*self.split_dimension:(i+1)*self.split_dimension])(out)
+            split_i = layers.Lambda(lambda x: x[:, :, i * self.split_dimension:(i + 1) * self.split_dimension])(out)
             self.out_splits.append(split_i)
             print("Out shape: {}, split shape: {}".format(out.shape, split_i.shape))
 
@@ -133,7 +135,8 @@ class NetVladBase:
             netvlad_out.append(netvlad_i)
 
         if len(netvlad_out) > 1:
-            netvlad_base = Model(self.base_model.input, L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
+            netvlad_base = Model(self.base_model.input,
+                                 L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
         else:
             netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
         self.netvlad_base = netvlad_base
@@ -152,11 +155,15 @@ class NetVladBase:
         self.positive = Input(shape=self.input_shape)
         self.negative = Input(shape=self.input_shape)
 
+        n_classes = len(os.listdir(paths.landmark_clustered_path))
+
+        self.labels = Input(shape=(3, n_classes))
+
         netvlad_a = self.netvlad_base([self.anchor])
         netvlad_p = self.netvlad_base([self.positive])
         netvlad_n = self.netvlad_base([self.negative])
-        siamese_model = Model(inputs=[self.anchor, self.positive, self.negative],
-                              outputs=[netvlad_a, netvlad_p, netvlad_n])
+        siamese_model = Model(inputs=[self.anchor, self.positive, self.negative, self.labels],
+                              outputs=[netvlad_a, netvlad_p, netvlad_n, self.labels])
         return siamese_model
 
     def set_mid_pca_weights(self, pca):
@@ -198,7 +205,8 @@ class NetVladBase:
 
     def train_kmeans(self, kmeans_generator):
         print("Predicting local features for k-means.")
-        all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30, verbose=1)
+        all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30,
+                                                                                  verbose=1)
 
         if type(all_descs) is not list:
             all_descs = [all_descs]
@@ -229,6 +237,7 @@ class NetVladBase:
 
         del all_descs
         gc.collect()
+
 
 class NetVLADSiameseModel(NetVladBase):
     def __init__(self, **kwargs):
@@ -320,3 +329,17 @@ class NetVladResnet(NetVladBase):
         self.filter_l = None  # useless, just for compatibility with netvlad implementation
 
         self.build_base_model(model)
+
+
+from keras_gem.gem import GeM
+
+
+class GeMResnet(NetVladResnet):
+    def build_netvladmodel(self, kmeans=None):
+        gem_out = GeM(pool_size=11)(self.base_model.get_layer(self.output_layer).output)
+        gem_out = layers.Flatten()(gem_out)
+        gem_out = L2NormLayer()(gem_out)
+        self.netvlad_base = Model(self.base_model.input, gem_out)
+
+        self.siamese_model = self.get_siamese_network()
+        return self.siamese_model

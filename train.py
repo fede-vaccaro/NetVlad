@@ -20,8 +20,9 @@ import netvlad_model
 import open_dataset_utils as my_utils
 import paths
 import utils
-from triplet_loss import TripletL2LossLayer
-
+from triplet_loss import TripletL2LossLayerSoftmax
+import h5py
+from sklearn.preprocessing import normalize
 ap = argparse.ArgumentParser()
 
 ap.add_argument("-m", "--model", type=str,
@@ -102,14 +103,14 @@ my_model = None
 if net_name == "vgg":
     my_model = netvlad_model.NetVLADSiameseModel(**network_conf)
 elif net_name == "resnet":
-    my_model = netvlad_model.NetVladResnet(**network_conf)
+    # my_model = netvlad_model.NetVladResnet(**network_conf)
+    my_model = netvlad_model.GeMResnet(**network_conf)
 else:
     print("Network name not valid.")
 
 vgg, output_shape = my_model.get_feature_extractor(verbose=False)
 
 vgg_netvlad = my_model.build_netvladmodel()
-vgg_netvlad.summary()
 
 print("Netvlad output shape: ", vgg_netvlad.output_shape)
 print("Feature extractor output shape: ", vgg.output_shape)
@@ -118,7 +119,7 @@ train_pca = False
 train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca
 train = not test
 
-if train_kmeans:
+if False:
     init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
         paths.landmarks_path,
         target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
@@ -131,18 +132,106 @@ if train_kmeans:
     if network_conf['post_pca']['active']:
         my_model.pretrain_pca(init_generator)
 
+preload_means = True
+
+# initialize softmax
+if train_kmeans:
+    means = {}
+
+    if not preload_means:
+        init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+            paths.landmark_clustered_path,
+            target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
+            batch_size=minibatch_size,
+            class_mode=None,
+            interpolation='bilinear', shuffle=False)
+
+        clusters = {}
+
+        img_list = [os.path.splitext(os.path.split(f)[1])[0] for f in init_generator.filenames]
+        n_steps = int(np.ceil(len(img_list) / minibatch_size))
+
+        all_feats = my_model.get_netvlad_extractor().predict_generator(init_generator, steps=n_steps, verbose=1)
+        labels = init_generator.classes[:min(minibatch_size * n_steps, len(img_list))]
+
+        indices_classes = {}
+        for class_ in init_generator.class_indices.keys():
+            index = init_generator.class_indices[class_]
+            indices_classes[str(index)] = class_
+
+            output_shape = all_feats.shape[1]
+
+        for i in set(init_generator.labels):
+            clusters[indices_classes[str(i)]] = []
+            # means[indices_classes[str(i)]] = []
+
+        print("Preparing clusters")
+        for i, z in enumerate(zip(all_feats, labels)):
+            feat, y = z
+            clusters[indices_classes[str(y)]] += [feat]
+
+        print("Preparing means")
+        means_h5 = h5py.File('means.h5', 'w')
+        for label in clusters.keys():
+            descs_array = normalize(np.array(clusters[label]))
+            samples = len(descs_array)
+            mean = np.sum(descs_array, axis=0)
+            mean /= np.linalg.norm(mean, ord=2)
+            means[label] = mean
+            means_h5.create_dataset(name=str(label), data=mean)
+
+        means_h5.close()
+    else:
+        means_h5 = h5py.File('means.h5', 'r')
+        for key in means_h5.keys():
+            means[key] = means_h5[key][:]
+        n_classes = len(means.keys())
+        means_h5.close()
+
+    print("Initializing matrix for softmax")
+
+    output_shape = 2048
+
+    centroids = np.zeros((len(means.keys()), output_shape))
+
+    classes = os.listdir(paths.landmark_clustered_path)
+    for label in means.keys():
+        index = classes.index(label)
+        mean = means[label]
+        centroids[index] = mean
+
 if train:
     steps_per_epoch = steps_per_epoch
-
     vgg_netvlad.summary()
 
     start_epoch = int(args['start_epoch'])
-    vgg_netvlad = Model(vgg_netvlad.input, TripletL2LossLayer(0.1)(vgg_netvlad.output))
+    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=int(centroids.shape[0]), alpha=0.1, l=0.1)
+    vgg_netvlad = Model(vgg_netvlad.input, triplet_loss_layer(vgg_netvlad.output))
 
     if model_name is not None:
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
         vgg_netvlad.load_weights(model_name)
         # vgg_netvlad.summary()
+    else:
+        # set triplet loss layer softmax weights
+        weights = triplet_loss_layer.get_weights()
+
+        centroids = normalize(centroids)
+
+        alpha = 0.1
+        assignments_weights = 2. * alpha * centroids
+        assignments_bias = -alpha * np.sum(np.power(centroids, 2), axis=1)
+
+        centroids = centroids.T
+        assignments_weights = assignments_weights.T
+        assignments_bias = assignments_bias.T
+
+        weights_softmax = triplet_loss_layer.get_weights()
+
+        weights_softmax[0] = assignments_weights
+        weights_softmax[1] = assignments_bias
+
+        triplet_loss_layer.set_weights(weights_softmax)
 
     opt = optimizers.Adam(lr=1e-5)
     vgg_netvlad.compile(opt)
@@ -197,7 +286,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=10.e-6, exp_decay=True,
+                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=10.e-6, exp_decay=False,
                                      exp_decay_factor=np.log(0.1) / (200 * 400))
             else:
                 lr = max_lr
@@ -206,9 +295,8 @@ if train:
 
             x, y = next(train_generator)
             # print("Starting training at epoch ", e)
-            loss_s = vgg_netvlad.train_on_batch(x, None)
+            loss_s = vgg_netvlad.train_on_batch(x + [y], None)
             losses_e.append(loss_s)
-
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                          epochs + start_epoch, lr)
             pbar.set_description(description_tqdm)
@@ -217,25 +305,25 @@ if train:
         loss = np.array(losses_e).mean()
         losses.append(loss)
 
-        val_loss_e = []
+        # val_loss_e = []
 
-        for s in range(steps_per_epoch_val):
-            x_val, _ = next(test_generator)
-            val_loss_s = vgg_netvlad.predict_on_batch(x_val)
-            val_loss_e.append(val_loss_s)
+        # for s in range(steps_per_epoch_val):
+        #     x_val, _ = next(test_generator)
+        #     val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+        #     val_loss_e.append(val_loss_s)
 
-        val_loss = np.array(val_loss_e).mean()
+        # val_loss = np.array(val_loss_e).mean()
         val_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
                                     use_multi_resolution=use_multi_resolution,
                                     rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
 
-        min_val_map = starting_map
+        max_val_map = starting_map
 
         if e > 0:
-            min_val_map = np.max(val_maps)
+            max_val_map = np.max(val_maps)
         else:
-            val_losses.append(min_val_loss)
-            val_maps.append(min_val_map)
+            # val_losses.append(min_val_loss)
+            val_maps.append(max_val_map)
 
         val_maps.append(val_map)
 
@@ -244,13 +332,13 @@ if train:
         #     print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_loss, model_name))
         #     vgg_netvlad.save_weights(model_name)
         #     not_improving_counter = 0
-        if val_map > min_val_map:
+        if val_map > max_val_map:
             model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_map, description)
-            print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_map, model_name))
+            print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(max_val_map, model_name))
             vgg_netvlad.save_weights(model_name)
             not_improving_counter = 0
         else:
-            print("Val loss ({0:.4f}) did not improve from {1:.4f}".format(val_map, min_val_map))
+            print("Val loss ({0:.4f}) did not improve from {1:.4f}".format(val_map, max_val_map))
             not_improving_counter += 1
             print("Val loss does not improve since {} epochs".format(not_improving_counter))
             if e % 5 == 0:

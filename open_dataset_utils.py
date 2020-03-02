@@ -301,6 +301,7 @@ class LandmarkTripletGenerator():
         if use_multiprocessing:
             self.loader.start()
 
+        self.tot_classes = len(classes)
         self.use_multiprocessing = use_multiprocessing
         self.minibatch_size = minibatch_size
         self.model = model
@@ -407,6 +408,16 @@ class LandmarkTripletGenerator():
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k, _, _ in triplets]
             im_labels = [[a, a, n] for _, _, _, a, n in triplets]
 
+            labels_one_hot = []
+
+            for a, _, n in im_labels:
+                one_hot_a = np.zeros((self.tot_classes,))
+                one_hot_n = np.zeros((self.tot_classes,))
+                one_hot_a[a] = 1.0
+                one_hot_n[n] = 1.0
+                labels_one_hot += [(one_hot_a, one_hot_a, one_hot_n)]
+
+            im_labels = labels_one_hot
             # del images_array, indices, distances, feats
             # gc.collect()
 

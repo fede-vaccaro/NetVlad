@@ -1,11 +1,11 @@
+import keras.backend as K
 import tensorflow as tf
 from keras.engine import Layer
-import keras.backend as K
+from tensorflow.python.framework import dtypes
 ## required for semi-hard triplet loss:
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
-from tensorflow.python.framework import dtypes
-import tensorflow as tf
+
 
 class Transpose(Layer):
     def __init__(self, **kwargs):
@@ -48,21 +48,67 @@ class TripletLossLayer(Layer):
         self.add_loss(loss)
         return loss
 
+from keras import initializers
+
+class TripletL2LossLayerSoftmax(Layer):
+    def __init__(self, n_classes, alpha=0.1, l=0.1, **kwargs):
+        self.alpha = alpha
+        self.l = l
+        self.n_classes = n_classes
+
+        super(TripletL2LossLayerSoftmax, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        self.kernel = self.add_weight(shape=(input_shape[0][-1], self.n_classes), name='kernel', initializer=initializers.ones())
+        self.biases = self.add_weight(shape=(self.n_classes,), name='biases', initializer=initializers.ones())
+        super(TripletL2LossLayerSoftmax, self).build(input_shape)  # Be sure to call this at the end
+
+    def triplet_loss(self, inputs):
+        anchor, positive, negative, _ = inputs
+        p_dist = K.sum(K.square(anchor - positive), axis=-1)
+        n_dist = K.sum(K.square(anchor - negative), axis=-1)
+        return K.mean(K.maximum(K.sqrt(p_dist) - K.sqrt(n_dist) + self.alpha, 0), axis=0)
+
+    def compute_y_pred(self, x):
+        y_pred = K.dot(x, self.kernel)
+        y_pred = K.bias_add(y_pred, self.biases, data_format='channels_last')
+        return y_pred
+
+    def categorical_cross_entropy(self, inputs):
+        anchor, positive, negative, labels = inputs
+        # label_a = labels[0]
+        # label_p = labels[1]
+        # label_n = labels[2]
+
+        y_pred_a = self.compute_y_pred(anchor)
+        y_pred_p = self.compute_y_pred(positive)
+        y_pred_n = self.compute_y_pred(negative)
+
+        loss = K.mean(K.categorical_crossentropy(labels, K.concatenate([y_pred_a, y_pred_p, y_pred_n], axis=0), from_logits=True))
+        return loss
+
+    def call(self, inputs):
+        loss = (self.l) * self.categorical_cross_entropy(inputs) + (1-self.l)*self.triplet_loss(inputs)
+        self.add_loss(loss)
+        return loss
+
+
 class TripletL2LossLayer(Layer):
     def __init__(self, alpha=0.1, **kwargs):
         self.alpha = alpha
         super(TripletL2LossLayer, self).__init__(**kwargs)
 
     def triplet_loss(self, inputs):
-        anchor, positive, negative = inputs
+        anchor, positive, negative = inputs[0]
         p_dist = K.sum(K.square(anchor - positive), axis=-1)
         n_dist = K.sum(K.square(anchor - negative), axis=-1)
         return K.mean(K.maximum(K.sqrt(p_dist) - K.sqrt(n_dist) + self.alpha, 0), axis=0)
 
-    def call(self, inputs):
+    def call(self, inputs, **kwargs):
         loss = self.triplet_loss(inputs)
         self.add_loss(loss)
         return loss
+
 
 class L2NormLayer(Layer):
     def __init__(self, **kwargs):
@@ -71,6 +117,7 @@ class L2NormLayer(Layer):
     def call(self, inputs):
         normalized = K.l2_normalize(inputs, axis=1)
         return normalized
+
 
 def pairwise_distance(feature, squared=False):
     """Computes the pairwise distance matrix with numerical stability.
@@ -115,6 +162,7 @@ def pairwise_distance(feature, squared=False):
     pairwise_distances = math_ops.multiply(pairwise_distances, mask_offdiagonals)
     return pairwise_distances
 
+
 def masked_maximum(data, mask, dim=1):
     """Computes the axis wise maximum over chosen elements.
 
@@ -132,6 +180,7 @@ def masked_maximum(data, mask, dim=1):
         math_ops.multiply(data - axis_minimums, mask), dim,
         keepdims=True) + axis_minimums
     return masked_maximums
+
 
 def masked_minimum(data, mask, dim=1):
     """Computes the axis wise minimum over chosen elements.
@@ -151,7 +200,9 @@ def masked_minimum(data, mask, dim=1):
         keepdims=True) + axis_maximums
     return masked_minimums
 
+
 N_LABELS = 500
+
 
 def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
     del y_true
@@ -174,17 +225,17 @@ def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
     # Build pairwise binary adjacency matrix.
     # adjacency = math_ops.equal(labels, array_ops.transpose(labels))
     adjacency = tf.matmul(labels, tf.transpose(labels))
-    #adjacency = tf.cast(adjacency, tf.dtypes.bool)
+    # adjacency = tf.cast(adjacency, tf.dtypes.bool)
 
-    #adjacency_not = pairwise_distance(tf.cast(labels, 'float32'))
-    #adjacency_not = tf.cast(adjacency_not, 'bool')
-    #adjacency = tf.logical_not(adjacency_not)
+    # adjacency_not = pairwise_distance(tf.cast(labels, 'float32'))
+    # adjacency_not = tf.cast(adjacency_not, 'bool')
+    # adjacency = tf.logical_not(adjacency_not)
 
     # Invert so we can select negatives only.
     adjacency_not = math_ops.logical_not(adjacency)
 
     # global batch_size
-    #batch_size = array_ops.size(labels)  # was 'array_ops.size(labels)'
+    # batch_size = array_ops.size(labels)  # was 'array_ops.size(labels)'
     batch_size = tf.shape(labels)[0]
     # Compute the mask.
     pdist_matrix_tile = array_ops.tile(pdist_matrix, [batch_size, 1])
@@ -233,8 +284,6 @@ def triplet_loss_adapted_from_tf_multidimlabels(y_true, y_pred):
 
     ### Code from Tensorflow function semi-hard triplet loss ENDS here.
     return semi_hard_triplet_loss_distance
-
-
 
 
 def triplet_loss_adapted_from_tf(y_true, y_pred):
@@ -310,4 +359,3 @@ def triplet_loss_adapted_from_tf(y_true, y_pred):
 
     ### Code from Tensorflow function semi-hard triplet loss ENDS here.
     return semi_hard_triplet_loss_distance
-
