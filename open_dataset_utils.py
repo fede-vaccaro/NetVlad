@@ -58,7 +58,6 @@ def open_img(path, input_shape=nm.NetVladBase.input_shape):
     return img, img_id
 
 
-
 def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=nm.NetVladBase.input_shape,
                     augmentation=False):
     train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
@@ -240,8 +239,9 @@ class Loader(threading.Thread):
 
     def load_batch(self, batch_size, classes, n_classes, train_dir):
         if not self.q.full():
-            random.shuffle(classes)
-            picked_classes = classes[:n_classes]
+            shuffled_classes = list(classes)
+            random.shuffle(shuffled_classes)
+            picked_classes = shuffled_classes[:n_classes]
             # load each image in those classes
             imgs = []
             for i, c in enumerate(picked_classes):
@@ -250,7 +250,8 @@ class Loader(threading.Thread):
                 random.shuffle(images_in_c)
                 images_in_c = images_in_c[:min(batch_size // n_classes, num_samples_in_c)]
                 for image_in_c in images_in_c:
-                   imgs += [(image_in_c, i, c)]
+                    class_index = classes.index(c)
+                    imgs += [(image_in_c, class_index, c)]
             # randomize the image list
             random.shuffle(imgs)
             # pick the first batch_size (if enough)
@@ -260,9 +261,8 @@ class Loader(threading.Thread):
             label_array = []
             # load the images
             # print("Opening the images (producer thread)")
-            for im, index, dir in imgs:
+            for im, label, dir in imgs:
                 image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=nm.NetVladBase.input_shape)
-                label = index
                 images_array.append(image)
                 label_array.append(label)
 
@@ -295,7 +295,7 @@ class LandmarkTripletGenerator():
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 6
+        n_classes = mining_batch_size // 4
 
         self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
         if use_multiprocessing:
@@ -309,8 +309,8 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.0
-        self.loss_max = 0.30000
+        self.loss_min = 0.08000
+        self.loss_max = 0.12000
 
         self.use_positives_augmentation = use_positives_augmentation
 
@@ -353,29 +353,36 @@ class LandmarkTripletGenerator():
                             r_label == anchor_label):  # scorre finchè non trova il primo negativo
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
-                        if j > 1:
-                            j_neg = j
-                        else:
-                            break
-                        if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
-                            j_pos = j_neg - 1
+                        j_neg = j
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
-                    # if (j_pos is not -1) and (j_neg is not -1):
-                        triplet = row[0], row[j_pos], row[j_neg], r_label
+                    if (j_pos is not -1) and (j_neg is not -1):
+                        # if (j_pos is not -1) and (j_neg is not -1):
+                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_array[row[j_neg]]
 
                         d_a_p = distances[i][j_pos]
                         d_a_n = distances[i][j_neg]
 
-                        loss = 0.1 + d_a_p**2 - d_a_n**2
+                        loss = 0.1 + d_a_p - d_a_n
 
                         if self.loss_min < loss < self.loss_max:
                             # print(loss)
                             triplets.append(triplet)
                             losses.append(loss)
 
+                        elif j_neg > 1: #form a semihard triplet
+                            j_pos = j_neg - 1
+                            triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_array[row[j_neg]]
+
+                            d_a_p = distances[i][j_pos]
+                            d_a_n = distances[i][j_neg]
+
+                            loss = 0.1 + d_a_p - d_a_n
+                            if self.loss_min < loss < self.loss_max:
+                                # print(loss)
+                                triplets.append(triplet)
+                                losses.append(loss)
                         break
 
             class_set = []
@@ -383,13 +390,13 @@ class LandmarkTripletGenerator():
             selected_losses = []
 
             for i, t in enumerate(triplets):
-                label = t[3]
-                if label in class_set:
+                anchor_label = t[3]
+                if anchor_label in class_set:
                     continue
                 else:
-                    selected_triplets += [t[:3]]
+                    selected_triplets += [t]
                     selected_losses += [losses[i]]
-                    class_set += [label]
+                    class_set += [anchor_label]
 
             triplets = selected_triplets
             losses = selected_losses
@@ -397,7 +404,8 @@ class LandmarkTripletGenerator():
             if True:
                 print("Different classes: {}".format(len(class_set)))
 
-            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
+            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k, _, _ in triplets]
+            im_labels = [[a, a, n] for _, _, _, a, n in triplets]
 
             # del images_array, indices, distances, feats
             # gc.collect()
@@ -421,18 +429,19 @@ class LandmarkTripletGenerator():
 
             for page in range(pages):
                 triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+                labels_out = im_labels[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
 
                 anchors = np.array([t[0] for t in triplets_out])
                 positives = np.array([t[1] for t in triplets_out])
                 # augment positives
 
-                #positives = next(
+                # positives = next(
                 #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
                 #                 batch_size=self.minibatch_size, shuffle=False))
 
                 negatives = np.array([t[2] for t in triplets_out])
 
-                yield [anchors, positives, negatives], np.array(losses)  # , [y_fake]*3
+                yield [anchors, positives, negatives], np.array(labels_out)  # , [y_fake]*3
 
 
 def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
@@ -604,15 +613,13 @@ def main():
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
 
-    from keras.applications import ResNet50
-
     # vgg_netvlad = ResNet50(input_shape=(336,336,3), weights='imagenet', pooling='avg', include_top=False)
 
     landmark_generator = LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
                                                   model=vgg_netvlad,
                                                   mining_batch_size=2048,
                                                   minibatch_size=6, semi_hard_prob=0.0,
-                                                  threshold=300, verbose=True)
+                                                  threshold=5, verbose=True)
 
     train_generator = landmark_generator.generator()
 
@@ -622,8 +629,6 @@ def main():
         print("Number of triplets: ", a.shape[0])
         for i in range(a.shape[0]):
             print("Triplet loss: ", y[i])
-            if y[i] > 0.1:
-                print("Hard triplet")
 
             descs = vgg_netvlad.predict(np.array([a[i], p[i], n[i]]))
             descs = normalize(descs)
@@ -635,10 +640,9 @@ def main():
             d_a_p = np.linalg.norm(a_desc - p_desc, ord=2)
             d_a_n = np.linalg.norm(a_desc - n_desc, ord=2)
 
-            loss = alpha + d_a_p ** 2 - d_a_n ** 2
+            loss = alpha + d_a_p - d_a_n
 
-            print("Semi-hard triplet. New loss: ", loss)
-            print("")
+            print("Loss: ", loss)
             show_triplet([restore(a[i]), restore(p[i]), restore(n[i])])
 
 
