@@ -65,6 +65,10 @@ class TripletL2LossLayerSoftmax(Layer):
 
     def triplet_loss(self, inputs):
         anchor, positive, negative, _ = inputs
+        anchor = K.l2_normalize(anchor, axis=1)
+        positive = K.l2_normalize(positive, axis=1)
+        negative = K.l2_normalize(negative, axis=1)
+
         p_dist = K.sum(K.square(anchor - positive), axis=-1)
         n_dist = K.sum(K.square(anchor - negative), axis=-1)
         return K.mean(K.maximum(K.sqrt(p_dist) - K.sqrt(n_dist) + self.alpha, 0), axis=0)
@@ -76,9 +80,6 @@ class TripletL2LossLayerSoftmax(Layer):
 
     def categorical_cross_entropy(self, inputs):
         anchor, positive, negative, labels = inputs
-        # label_a = labels[0]
-        # label_p = labels[1]
-        # label_n = labels[2]
 
         y_pred_a = self.compute_y_pred(anchor)
         y_pred_p = self.compute_y_pred(positive)

@@ -338,7 +338,8 @@ class GeMResnet(NetVladResnet):
     def build_netvladmodel(self, kmeans=None):
         gem_out = GeM(pool_size=11)(self.base_model.get_layer(self.output_layer).output)
         gem_out = layers.Flatten()(gem_out)
-        gem_out = L2NormLayer()(gem_out)
+        gem_out = layers.Dense(2048, kernel_regularizer=tf.keras.regularizers.l2(0.001))(gem_out)
+        # gem_out = L2NormLayer()(gem_out)
         self.netvlad_base = Model(self.base_model.input, gem_out)
 
         self.siamese_model = self.get_siamese_network()

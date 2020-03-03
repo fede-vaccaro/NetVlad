@@ -132,7 +132,7 @@ if False:
     if network_conf['post_pca']['active']:
         my_model.pretrain_pca(init_generator)
 
-preload_means = True
+preload_means = False
 
 # initialize softmax
 if train_kmeans:
@@ -205,7 +205,7 @@ if train:
     vgg_netvlad.summary()
 
     start_epoch = int(args['start_epoch'])
-    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=int(centroids.shape[0]), alpha=0.1, l=0.1)
+    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=int(centroids.shape[0]), alpha=0.1, l=0.5)
     vgg_netvlad = Model(vgg_netvlad.input, triplet_loss_layer(vgg_netvlad.output))
 
     if model_name is not None:
