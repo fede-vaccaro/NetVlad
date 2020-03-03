@@ -6,6 +6,7 @@ import sys
 import h5py
 import numpy as np
 from PIL import Image
+from keras import Model
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 import netvlad_model as nm
@@ -19,6 +20,8 @@ import paths
 import argparse
 import yaml
 import utils
+from triplet_loss import TripletL2LossLayerSoftmax
+
 ap = argparse.ArgumentParser()
 
 
@@ -84,12 +87,15 @@ def main():
     if net_name == "vgg":
         my_model = nm.NetVLADSiameseModel(**network_conf)
     elif net_name == "resnet":
-        my_model = nm.NetVladResnet(**network_conf)
-        # my_model = nm.GeMResnet(**network_conf)
+        # my_model = nm.NetVladResnet(**network_conf)
+        my_model = nm.GeMResnet(**network_conf)
     else:
         print("Network name not valid.")
+        quit()
 
     vgg_netvlad = my_model.build_netvladmodel()
+    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=28744, alpha=0.1, l=0.5)
+    vgg_netvlad = Model(vgg_netvlad.input, triplet_loss_layer(vgg_netvlad.output))
     weight_name = model_name
     print("Loading weights: " + weight_name)
     vgg_netvlad.load_weights(weight_name)
@@ -158,13 +164,40 @@ def main():
     print(indices.shape)
 
     if format is 'buildings':
-        for i, row in tqdm(enumerate(indices)):
-            file = open("results/{}_ranked_list.dat".format(img_list[i]), 'w')
-            # file.write(all_keys[i] + " ")
-            for j in row:
-                file.write(img_list[j] + "\n")
-            # file.write("\n")
-            file.close()
+        APs = []
+
+        queries = {}
+        # open queries
+
+        if test_oxford:
+            gt_path = "gt-oxford"
+        else:
+            gt_path = "gt-paris"
+
+        text_files = os.listdir(gt_path)
+
+        for file in text_files:
+            if file.endswith("_query.txt"):
+                query_file = open(gt_path + "/" + file, 'r')
+
+                if test_oxford:
+                    query_pic = query_file.readline().split(" ")[0][len("oxc1_"):]
+                else:
+                    query_pic = query_file.readline().split(" ")[0]
+
+                query_name = file[:-len("_query.txt")]
+                queries[query_pic] = query_name
+
+        for row in indices:
+            file_name = img_list[row[0]]
+            if file_name in set(queries.keys()):
+                ranked_list = []
+                for j in row:
+                    ranked_list += [img_list[j]]
+                ap = compute_ap(query_name=queries[file_name], ranked_list=ranked_list, gt_path=gt_path)
+                APs.append(ap)
+
+        print("mAP is: {}".format(np.array(APs).mean()))
 
     elif format is 'inria':
         file = open("eval_holidays/holidays_results.dat", 'w')
@@ -181,6 +214,47 @@ def main():
             'python2 ' + "eval_holidays/holidays_map.py " + "eval_holidays/holidays_results.dat",
             shell=True)
         print(result)
+
+def load_set(set_name):
+    files = []
+
+    with open(set_name, 'r') as text:
+        for line in text.readlines():
+            name = line.rstrip("\n")
+            files.append(name)
+
+    return set(files)
+
+def compute_ap(query_name, ranked_list, gt_path):
+    good_set = load_set(gt_path + "/" + query_name + "_good.txt")
+    ok_set = load_set(gt_path + "/" + query_name + "_ok.txt")
+    junk_set = load_set(gt_path + "/" + query_name + "_junk.txt")
+
+    pos_set = good_set.union(ok_set)
+
+    old_recall = 0.0
+    old_precision = 1.0
+    ap = 0.0
+
+    intersect_size = 0
+
+    j = 0
+    for i, el in enumerate(ranked_list):
+        if el in junk_set:
+            continue
+        if el in pos_set:
+            intersect_size += 1
+
+        recall = intersect_size / len(pos_set)
+        precision = intersect_size / (j + 1.0)
+
+        ap += (recall - old_recall)*((old_precision + precision)/2.0)
+        old_recall = recall
+        old_precision = precision
+        j += 1
+
+    return ap
+
 
 
 if __name__ == "__main__":

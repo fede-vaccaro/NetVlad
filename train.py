@@ -173,10 +173,12 @@ if train_kmeans:
         print("Preparing means")
         means_h5 = h5py.File('means.h5', 'w')
         for label in clusters.keys():
-            descs_array = normalize(np.array(clusters[label]))
+            # descs_array = normalize(np.array(clusters[label]))
+            descs_array = np.array(clusters[label])
             samples = len(descs_array)
             mean = np.sum(descs_array, axis=0)
-            mean /= np.linalg.norm(mean, ord=2)
+            # mean /= np.linalg.norm(mean, ord=2)
+            mean /= samples
             means[label] = mean
             means_h5.create_dataset(name=str(label), data=mean)
 
@@ -205,7 +207,7 @@ if train:
     vgg_netvlad.summary()
 
     start_epoch = int(args['start_epoch'])
-    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=int(centroids.shape[0]), alpha=0.1, l=0.5)
+    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=len(os.listdir(paths.landmark_clustered_path)), alpha=0.1, l=0.5)
     vgg_netvlad = Model(vgg_netvlad.input, triplet_loss_layer(vgg_netvlad.output))
 
     if model_name is not None:
@@ -286,8 +288,8 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=10.e-6, exp_decay=False,
-                                     exp_decay_factor=np.log(0.1) / (200 * 400))
+                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=1.e-6, exp_decay=False,
+                                     exp_decay_factor=(0.1) / (80 * 400))
             else:
                 lr = max_lr
 
