@@ -226,11 +226,12 @@ def custom_generator_from_keras(train_dir, batch_size=32, net_output=None, train
 
 
 class Loader(threading.Thread):
-    def __init__(self, batch_size, classes, n_classes, train_dir):
+    def __init__(self, batch_size, classes, n_classes, train_dir, class_indices):
         self.batch_size = batch_size
         self.classes = classes
         self.n_classes = n_classes
         self.train_dir = train_dir
+        self.class_indices = class_indices
 
         self.keep_loading = True
 
@@ -250,7 +251,8 @@ class Loader(threading.Thread):
                 random.shuffle(images_in_c)
                 images_in_c = images_in_c[:min(batch_size // n_classes, num_samples_in_c)]
                 for image_in_c in images_in_c:
-                    class_index = classes.index(c)
+                    # class_index = classes.index(c)
+                    class_index = int(self.class_indices[c])
                     imgs += [(image_in_c, class_index, c)]
             # randomize the image list
             random.shuffle(imgs)
@@ -291,13 +293,14 @@ class Loader(threading.Thread):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True,
+    def __init__(self, train_dir, class_indices, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 4
+        self.class_indices = class_indices
 
-        self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
+        self.loader = Loader(mining_batch_size, classes, n_classes, train_dir, class_indices=class_indices)
         if use_multiprocessing:
             self.loader.start()
 

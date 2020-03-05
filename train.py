@@ -4,25 +4,25 @@ import os
 import time
 from math import ceil
 
+import h5py
+import holidays_testing_helpers as hth
 import matplotlib.pyplot as plt
+import netvlad_model
 import numpy as np
+import open_dataset_utils as my_utils
+import paths
+import utils
 import yaml
 from keras import backend as K
 from keras import optimizers, Model
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
+from sklearn.preprocessing import normalize
 # from keras_radam import RAdam
 # from keras_radam.training import RAdamOptimizer
 from tqdm import tqdm
-
-import holidays_testing_helpers as hth
-import netvlad_model
-import open_dataset_utils as my_utils
-import paths
-import utils
 from triplet_loss import TripletL2LossLayerSoftmax
-import h5py
-from sklearn.preprocessing import normalize
+
 ap = argparse.ArgumentParser()
 
 ap.add_argument("-m", "--model", type=str,
@@ -138,13 +138,15 @@ preload_means = True
 if train_kmeans:
     means = {}
 
+    init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+        paths.landmark_clustered_path,
+        target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
+        batch_size=minibatch_size,
+        class_mode=None,
+        interpolation='bilinear', shuffle=False)
+    class_indices = init_generator.class_indices
+
     if not preload_means:
-        init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
-            paths.landmark_clustered_path,
-            target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-            batch_size=minibatch_size,
-            class_mode=None,
-            interpolation='bilinear', shuffle=False)
 
         clusters = {}
 
@@ -155,7 +157,7 @@ if train_kmeans:
         labels = init_generator.classes[:min(minibatch_size * n_steps, len(img_list))]
 
         indices_classes = {}
-        for class_ in init_generator.class_indices.keys():
+        for class_ in class_indices.keys():
             index = init_generator.class_indices[class_]
             indices_classes[str(index)] = class_
 
@@ -198,7 +200,8 @@ if train_kmeans:
 
     classes = os.listdir(paths.landmark_clustered_path)
     for label in means.keys():
-        index = classes.index(label)
+        index = class_indices[label]
+        index = int(index)
         mean = means[label]
         centroids[index] = mean
 
@@ -207,7 +210,8 @@ if train:
     vgg_netvlad.summary()
 
     start_epoch = int(args['start_epoch'])
-    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=len(os.listdir(paths.landmark_clustered_path)), alpha=0.1, l=0.5)
+    triplet_loss_layer = TripletL2LossLayerSoftmax(n_classes=len(os.listdir(paths.landmark_clustered_path)), alpha=0.1,
+                                                   l=0.5)
     vgg_netvlad = Model(vgg_netvlad.input, triplet_loss_layer(vgg_netvlad.output))
 
     if model_name is not None:
@@ -220,7 +224,7 @@ if train:
 
         # centroids = normalize(centroids)
 
-        alpha = 10
+        alpha = 50.0
         assignments_weights = 2. * alpha * centroids
         assignments_bias = -alpha * np.sum(np.power(centroids, 2), axis=1)
 
@@ -245,7 +249,8 @@ if train:
                                                        model=my_model.get_netvlad_extractor(),
                                                        mining_batch_size=mining_batch_size,
                                                        minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                       threshold=threshold, use_positives_augmentation=False)
+                                                       threshold=threshold, use_positives_augmentation=False,
+                                                       class_indices=class_indices)
 
     train_generator = init_generator.generator()
 
@@ -273,8 +278,9 @@ if train:
     # print("Starting validation loss: ", starting_val_loss)
 
     starting_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
-                                     use_multi_resolution=use_multi_resolution,
-                                     rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
+                                            use_multi_resolution=use_multi_resolution,
+                                            rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
+                                            verbose=False)
 
     print("Starting mAP: ", starting_map)
 
@@ -316,8 +322,9 @@ if train:
 
         # val_loss = np.array(val_loss_e).mean()
         val_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
-                                    use_multi_resolution=use_multi_resolution,
-                                    rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
+                                           use_multi_resolution=use_multi_resolution,
+                                           rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
+                                           verbose=False)
 
         max_val_map = starting_map
 
