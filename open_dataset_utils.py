@@ -354,11 +354,12 @@ class LandmarkTripletGenerator():
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
                         j_neg = j
+                        if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
+                           j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
-                    if (j_pos is not -1) and (j_neg is not -1):
-                        # if (j_pos is not -1) and (j_neg is not -1):
+                    if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
                         triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_array[row[j_neg]]
 
                         d_a_p = distances[i][j_pos]
@@ -366,23 +367,11 @@ class LandmarkTripletGenerator():
 
                         loss = 0.1 + d_a_p - d_a_n
 
+                        # print(loss)
                         if self.loss_min < loss < self.loss_max:
                             # print(loss)
                             triplets.append(triplet)
                             losses.append(loss)
-
-                        elif j_neg > 1: #form a semihard triplet
-                            j_pos = j_neg - 1
-                            triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_array[row[j_neg]]
-
-                            d_a_p = distances[i][j_pos]
-                            d_a_n = distances[i][j_neg]
-
-                            loss = 0.1 + d_a_p - d_a_n
-                            if self.loss_min < loss < self.loss_max:
-                                # print(loss)
-                                triplets.append(triplet)
-                                losses.append(loss)
                         break
 
             class_set = []

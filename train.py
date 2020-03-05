@@ -150,7 +150,7 @@ if train:
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
 
-    init_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmark_clustered_path,
+    init_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                        model=my_model.get_netvlad_extractor(),
                                                        mining_batch_size=mining_batch_size,
                                                        minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
@@ -234,7 +234,7 @@ if train:
         if e > 0:
             min_val_map = np.max(val_maps)
         else:
-            val_losses.append(min_val_loss)
+            # val_losses.append(min_val_loss)
             val_maps.append(min_val_map)
 
         val_maps.append(val_map)
@@ -298,5 +298,5 @@ if test and model_name is not None:
 
 vgg_netvlad = my_model.get_netvlad_extractor()
 
-hth.test_holidays(model=vgg_netvlad, side_res=side_res, use_multi_resolution=use_multi_resolution,
+hth.tester.test_holidays(model=vgg_netvlad, side_res=side_res, use_multi_resolution=use_multi_resolution,
                   rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=True)
