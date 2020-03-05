@@ -10,13 +10,13 @@ def transform(X, mean, components, explained_variance = None, pow_whiten=0.5, wh
     return X_transformed
 
 
-def lr_warmup(it, min_lr=1e-6, max_lr=1e-5, wu_steps=2000, exp_decay=False, exp_decay_factor=1e-4):
+def lr_warmup(it, frequency, min_lr=1e-6, max_lr=1e-5, step_factor=0.1, wu_steps=2000):
     if it < wu_steps:
         lr = max_lr * it / wu_steps + min_lr * (1. - it / wu_steps)
-    elif exp_decay:
-       lr = max_lr*np.exp(exp_decay_factor*it)
     else:
-       lr = max_lr
+       n_cuts = int(np.floor(it / frequency))
+       step_factor = step_factor ** min(n_cuts, 1)
+       lr = max_lr*step_factor
 
     return lr
 
