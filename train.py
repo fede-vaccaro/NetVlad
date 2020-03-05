@@ -132,7 +132,7 @@ if False:
     if network_conf['post_pca']['active']:
         my_model.pretrain_pca(init_generator)
 
-preload_means = False
+preload_means = True
 
 # initialize softmax
 if train_kmeans:
@@ -218,9 +218,9 @@ if train:
         # set triplet loss layer softmax weights
         weights = triplet_loss_layer.get_weights()
 
-        centroids = normalize(centroids)
+        # centroids = normalize(centroids)
 
-        alpha = 0.1
+        alpha = 10
         assignments_weights = 2. * alpha * centroids
         assignments_bias = -alpha * np.sum(np.power(centroids, 2), axis=1)
 
@@ -288,7 +288,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=1.e-6, exp_decay=False,
+                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=1.e-5, exp_decay=False,
                                      exp_decay_factor=(0.1) / (80 * 400))
             else:
                 lr = max_lr
