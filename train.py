@@ -222,9 +222,9 @@ if train:
         # set triplet loss layer softmax weights
         weights = triplet_loss_layer.get_weights()
 
-        # centroids = normalize(centroids)
+        centroids = normalize(centroids)
 
-        alpha = 50.0
+        alpha = 0.1
         assignments_weights = 2. * alpha * centroids
         assignments_bias = -alpha * np.sum(np.power(centroids, 2), axis=1)
 
@@ -303,7 +303,7 @@ if train:
 
             x, y = next(train_generator)
             # print("Starting training at epoch ", e)
-            loss_s = vgg_netvlad.train_on_batch(x + [y], None)
+            loss_s = vgg_netvlad.train_on_batch(x + y, None)
             losses_e.append(loss_s)
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                          epochs + start_epoch, lr)

@@ -157,13 +157,14 @@ class NetVladBase:
 
         n_classes = len(os.listdir(paths.landmark_clustered_path))
 
-        self.labels = Input(shape=(3, n_classes))
+        self.labels_ap = Input(shape=(n_classes,))
+        self.labels_n = Input(shape=(n_classes,))
 
         netvlad_a = self.netvlad_base([self.anchor])
         netvlad_p = self.netvlad_base([self.positive])
         netvlad_n = self.netvlad_base([self.negative])
-        siamese_model = Model(inputs=[self.anchor, self.positive, self.negative, self.labels],
-                              outputs=[netvlad_a, netvlad_p, netvlad_n, self.labels])
+        siamese_model = Model(inputs=[self.anchor, self.positive, self.negative, self.labels_ap, self.labels_n],
+                              outputs=[netvlad_a, netvlad_p, netvlad_n, self.labels_ap, self.labels_n])
         return siamese_model
 
     def set_mid_pca_weights(self, pca):
@@ -339,7 +340,7 @@ class GeMResnet(NetVladResnet):
         gem_out = GeM(pool_size=11)(self.base_model.get_layer(self.output_layer).output)
         gem_out = layers.Flatten()(gem_out)
         # gem_out = layers.Dense(2048, kernel_regularizer=tf.keras.regularizers.l2(0.001))(gem_out)
-        # gem_out = L2NormLayer()(gem_out)
+        gem_out = L2NormLayer()(gem_out)
         self.netvlad_base = Model(self.base_model.input, gem_out)
 
         self.siamese_model = self.get_siamese_network()

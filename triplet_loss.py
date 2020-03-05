@@ -65,9 +65,9 @@ class TripletL2LossLayerSoftmax(Layer):
 
     def triplet_loss(self, inputs):
         anchor, positive, negative, _ = inputs
-        anchor = K.l2_normalize(anchor, axis=1)
-        positive = K.l2_normalize(positive, axis=1)
-        negative = K.l2_normalize(negative, axis=1)
+        #anchor = K.l2_normalize(anchor, axis=1)
+        #positive = K.l2_normalize(positive, axis=1)
+        #negative = K.l2_normalize(negative, axis=1)
 
         p_dist = K.sum(K.square(anchor - positive), axis=-1)
         n_dist = K.sum(K.square(anchor - negative), axis=-1)
@@ -76,20 +76,30 @@ class TripletL2LossLayerSoftmax(Layer):
     def compute_y_pred(self, x):
         y_pred = K.dot(x, self.kernel)
         y_pred = K.bias_add(y_pred, self.biases, data_format='channels_last')
+        y_pred = K.softmax(y_pred)
         return y_pred
 
     def categorical_cross_entropy(self, inputs):
-        anchor, positive, negative, labels = inputs
+        anchor, positive, negative, labels_ap, labels_n = inputs
 
         y_pred_a = self.compute_y_pred(anchor)
         y_pred_p = self.compute_y_pred(positive)
         y_pred_n = self.compute_y_pred(negative)
 
-        loss = K.mean(K.categorical_crossentropy(labels, K.concatenate([y_pred_a, y_pred_p, y_pred_n], axis=0), from_logits=True))
+        a_loss = K.categorical_crossentropy(labels_ap, y_pred_a)
+        p_loss = K.categorical_crossentropy(labels_ap, y_pred_p)
+        n_loss = K.categorical_crossentropy(labels_n, y_pred_n)
+
+        # labels = K.concatenate([labels_a, labels_p, labels_n])
+
+        # labels = K.reshape(labels, (-1, self.n_classes))
+
+        #loss = K.mean(K.categorical_crossentropy(labels, K.concatenate([y_pred_a, y_pred_p, y_pred_n], axis=0)))
+        loss = K.mean(K.concatenate([a_loss, p_loss, n_loss], axis=0))
         return loss
 
     def call(self, inputs):
-        loss = (self.l) * self.categorical_cross_entropy(inputs) + (1-self.l)*self.triplet_loss(inputs)
+        loss = (self.l) * self.categorical_cross_entropy(inputs) #+ (1-self.l)*self.triplet_loss(inputs)
         self.add_loss(loss)
         return loss
 

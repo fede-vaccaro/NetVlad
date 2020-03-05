@@ -455,7 +455,11 @@ class LandmarkTripletGenerator():
 
                 negatives = np.array([t[2] for t in triplets_out])
 
-                yield [anchors, positives, negatives], np.array(labels_out)  # , [y_fake]*3
+
+                labels_ap = np.array([l[0] for l in labels_out])
+                labels_n = np.array([l[2] for l in labels_out])
+
+                yield [anchors, positives, negatives], [labels_ap, labels_n]  # , [y_fake]*3
 
 
 def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
