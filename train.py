@@ -20,7 +20,7 @@ import netvlad_model
 import open_dataset_utils as my_utils
 import paths
 import utils
-from triplet_loss import TripletL2LossLayer
+from triplet_loss import TripletLossLayer
 
 ap = argparse.ArgumentParser()
 
@@ -137,7 +137,7 @@ if train:
     vgg_netvlad.summary()
 
     start_epoch = int(args['start_epoch'])
-    vgg_netvlad = Model(vgg_netvlad.input, TripletL2LossLayer(0.1)(vgg_netvlad.output))
+    vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
 
     if model_name is not None:
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
@@ -163,7 +163,7 @@ if train:
                                                            netbatch_size=minibatch_size)
 
     losses = []
-    # val_losses = []
+    val_losses = []
     val_maps = []
 
     not_improving_counter = 0
@@ -171,15 +171,15 @@ if train:
 
     description = train_description
 
-    # val_loss_e = []
-    #
-    # for s in range(steps_per_epoch_val):
-    #     x_val, _ = next(test_generator)
-    #     val_loss_s = vgg_netvlad.predict_on_batch(x_val)
-    #     val_loss_e.append(val_loss_s)
+    val_loss_e = []
 
-    # starting_val_loss = np.array(val_loss_e).mean()
-    # print("Starting validation loss: ", starting_val_loss)
+    for s in range(steps_per_epoch_val):
+        x_val, _ = next(test_generator)
+        val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+        val_loss_e.append(val_loss_s)
+
+    starting_val_loss = np.array(val_loss_e).mean()
+    print("Starting validation loss: ", starting_val_loss)
 
     starting_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
                                      use_multi_resolution=use_multi_resolution,
@@ -197,7 +197,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1.e-6, max_lr=1.e-5, frequency=120*400, step_factor=0.1)
+                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1e-6, max_lr=1e-5, frequency=150*400, step_factor=0.1)
             else:
                 lr = max_lr
 
@@ -229,14 +229,17 @@ if train:
                                     rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
 
         min_val_map = starting_map
+        min_val_loss = starting_val_loss
 
         if e > 0:
             min_val_map = np.max(val_maps)
+            min_val_loss = np.min(val_losses)
         else:
-            # val_losses.append(min_val_loss)
+            val_losses.append(min_val_loss)
             val_maps.append(min_val_map)
 
         val_maps.append(val_map)
+        val_losses.append(val_loss)
 
         # if val_loss < min_val_loss:
         #     model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_loss, description)
@@ -268,7 +271,7 @@ if train:
                 print("Optimizer weights restarted.")
 
         print("Validation mAP: {}\n".format(val_map))
-        # print("Validation loss: {}\n".format(val_loss))
+        print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
 
         t1 = time.time()
@@ -281,7 +284,7 @@ if train:
     print("Saved model to disk: ", model_name)
 
     plt.figure(figsize=(8, 8))
-    # plt.plot(val_maps, label='validation map')
+    plt.plot(val_maps, label='validation map')
     plt.plot(losses, label='training loss')
     plt.plot(val_losses, label='validation loss')
     plt.legend()
