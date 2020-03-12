@@ -1,26 +1,21 @@
-import gc
 import os
-import subprocess
-import sys
-from keras import layers
+import argparse
+import math
+import os
+
 import h5py
 import numpy as np
-from PIL import Image
+import yaml
 from keras.applications.vgg16 import preprocess_input
-from keras.preprocessing import image
-import netvlad_model as nm
-from sklearn.decomposition import PCA
+from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
-from tqdm import tqdm
-from keras.preprocessing.image import ImageDataGenerator
-import math
-import paths
-import argparse
-import yaml
-import utils
-ap = argparse.ArgumentParser()
 
+import netvlad_model as nm
+import paths
+import utils
+
+ap = argparse.ArgumentParser()
 
 ap.add_argument("-m", "--model", type=str,
                 help="path to *specific* model checkpoint to load")
@@ -53,6 +48,7 @@ side_res = conf['input-shape']
 nm.NetVladBase.input_shape = (side_res, side_res, 3)
 if use_multi_resolution:
     nm.NetVladBase.input_shape = (None, None, 3)
+
 
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
@@ -95,39 +91,38 @@ def main():
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
 
-    base_resolution = (side_res, side_res, 3)
+    APs = compute_aps(path, vgg_netvlad)
 
+    print("mAP is: {}".format(np.array(APs).mean()))
+
+
+def compute_aps(dataset_path, model):
+    base_resolution = (side_res, side_res, 3)
     input_shape_1 = (768, 768, 3)
     input_shape_2 = (504, 504, 3)
     input_shape_3 = (224, 224, 3)
     input_shape_4 = (160, 160, 3)
-
     batch_size = 16
     input_shapes = [input_shape_2, input_shape_3]
-
     datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
-
     print("Loading images at shape: {}".format(base_resolution))
-    gen = datagen.flow_from_directory(path, target_size=(base_resolution[0], base_resolution[1]), batch_size=batch_size,
+    gen = datagen.flow_from_directory(dataset_path, target_size=(base_resolution[0], base_resolution[1]), batch_size=batch_size,
                                       class_mode=None,
                                       shuffle=False, interpolation='bilinear')
     print("Computing descriptors")
     img_list = [os.path.splitext(os.path.split(f)[1])[0] for f in gen.filenames]
     n_steps = math.ceil(len(img_list) / batch_size)
-    all_feats = vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1)
-
+    all_feats = model.predict_generator(gen, steps=n_steps, verbose=1)
     if use_multi_resolution:
         for shape in input_shapes:
             print("Loading images at shape: {}".format(shape))
-            gen = datagen.flow_from_directory(path, target_size=(shape[0], shape[1]),
+            gen = datagen.flow_from_directory(dataset_path, target_size=(shape[0], shape[1]),
                                               batch_size=batch_size,
                                               class_mode=None,
                                               shuffle=False, interpolation='bilinear')
             print("Computing descriptors")
-            all_feats += vgg_netvlad.predict_generator(gen, steps=n_steps, verbose=1)
-
+            all_feats += model.predict_generator(gen, steps=n_steps, verbose=1)
     all_feats = normalize(all_feats)
-
     use_pca = False
     if use_pca:
         n_components = 2048
@@ -139,77 +134,47 @@ def main():
         pca_dataset.close()
 
         all_feats = utils.transform(all_feats, mean, components, explained_variance, whiten=True, pow_whiten=0.5)
-
     all_feats = normalize(all_feats)
-
     if use_power_norm:
         all_feats_sign = np.sign(all_feats)
         all_feats = np.power(np.abs(all_feats), 0.5)
         all_feats = np.multiply(all_feats, all_feats_sign)
-
     all_feats = normalize(all_feats)
-
     print("Computing NN")
     nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
-
     # imnames = all_keys
-
     # query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
-
     distances, indices = nbrs.kneighbors(all_feats)
     print(indices.shape)
+    APs = []
+    queries = {}
+    # open queries
+    if test_oxford:
+        gt_path = "gt-oxford"
+    else:
+        gt_path = "gt-paris"
+    text_files = os.listdir(gt_path)
+    for file in text_files:
+        if file.endswith("_query.txt"):
+            query_file = open(gt_path + "/" + file, 'r')
 
-    if format is 'buildings':
-        APs = []
+            if test_oxford:
+                query_pic = query_file.readline().split(" ")[0][len("oxc1_"):]
+            else:
+                query_pic = query_file.readline().split(" ")[0]
 
-        queries = {}
-        # open queries
+            query_name = file[:-len("_query.txt")]
+            queries[query_pic] = query_name
+    for row in indices:
+        file_name = img_list[row[0]]
+        if file_name in set(queries.keys()):
+            ranked_list = []
+            for j in row:
+                ranked_list += [img_list[j]]
+            ap = compute_ap(query_name=queries[file_name], ranked_list=ranked_list, gt_path=gt_path)
+            APs.append(ap)
+    return APs
 
-        if test_oxford:
-            gt_path = "gt-oxford"
-        else:
-            gt_path = "gt-paris"
-
-        text_files = os.listdir(gt_path)
-
-        for file in text_files:
-            if file.endswith("_query.txt"):
-                query_file = open(gt_path + "/" + file, 'r')
-
-                if test_oxford:
-                    query_pic = query_file.readline().split(" ")[0][len("oxc1_"):]
-                else:
-                    query_pic = query_file.readline().split(" ")[0]
-
-                query_name = file[:-len("_query.txt")]
-                queries[query_pic] = query_name
-
-        for row in indices:
-            file_name = img_list[row[0]]
-            if file_name in set(queries.keys()):
-                ranked_list = []
-                for j in row:
-                    ranked_list += [img_list[j]]
-                ap = compute_ap(query_name=queries[file_name], ranked_list=ranked_list, gt_path=gt_path)
-                APs.append(ap)
-
-        print("mAP is: {}".format(np.array(APs).mean()))
-
-    elif format is 'inria':
-        file = open("eval_holidays/holidays_results.dat", 'w')
-        for i, row in enumerate(indices):
-            if int(img_list[i]) % 100 is 0:
-                string = img_list[i] + ".jpg "
-                for k, j in enumerate(row[1:]):
-                    string += "{} {}.jpg ".format(k, img_list[j])
-                file.write(string + "\n")
-        file.close()
-
-        sys.path.insert(1, '/path/to/application/app/folder')
-        result = subprocess.check_output(
-            'python2 ' + "eval_holidays/holidays_map.py " + "eval_holidays/holidays_results.dat",
-            shell=True)
-        print(result)
 
 def load_set(set_name):
     files = []
@@ -220,6 +185,7 @@ def load_set(set_name):
             files.append(name)
 
     return set(files)
+
 
 def compute_ap(query_name, ranked_list, gt_path):
     good_set = load_set(gt_path + "/" + query_name + "_good.txt")
@@ -244,13 +210,12 @@ def compute_ap(query_name, ranked_list, gt_path):
         recall = intersect_size / len(pos_set)
         precision = intersect_size / (j + 1.0)
 
-        ap += (recall - old_recall)*((old_precision + precision)/2.0)
+        ap += (recall - old_recall) * ((old_precision + precision) / 2.0)
         old_recall = recall
         old_precision = precision
         j += 1
 
     return ap
-
 
 
 if __name__ == "__main__":

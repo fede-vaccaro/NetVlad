@@ -3,19 +3,21 @@ import gc
 import numpy as np
 import tensorflow as tf
 import vis.utils.utils
+import keras
 from keras import activations
+from keras import backend as K
 from keras import layers
-from keras.applications import VGG16, ResNet50
+from keras.applications import VGG16
 from keras.layers import Input, Reshape, concatenate, MaxPool2D
 from keras.models import Model
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.decomposition import PCA
 from keras_applications.resnet import ResNet101
 from loupe_keras import NetVLAD
-from triplet_loss import L2NormLayer
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
-from keras import backend as K
-import keras
+from triplet_loss import L2NormLayer
+
+
 class NetVladBase:
     input_shape = (336, 336, 3)
 
@@ -37,9 +39,6 @@ class NetVladBase:
         print(out.shape)
         # self.n_filters = int(out.shape[-1])
         self.n_filters = 512
-
-        #out = layers.UpSampling2D(interpolation='bilinear')(out)
-        #out = layers.DepthwiseConv2D(kernel_size=(3,3))(out)
 
         pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
         pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
@@ -75,7 +74,7 @@ class NetVladBase:
         self.out_splits = []
 
         for i in range(self.n_splits):
-            split_i = layers.Lambda(lambda x: x[:, :, i*self.split_dimension:(i+1)*self.split_dimension])(out)
+            split_i = layers.Lambda(lambda x: x[:, :, i * self.split_dimension:(i + 1) * self.split_dimension])(out)
             self.out_splits.append(split_i)
             print("Out shape: {}, split shape: {}".format(out.shape, split_i.shape))
 
@@ -136,7 +135,8 @@ class NetVladBase:
             netvlad_out.append(netvlad_i)
 
         if len(netvlad_out) > 1:
-            netvlad_base = Model(self.base_model.input, L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
+            netvlad_base = Model(self.base_model.input,
+                                 L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
         else:
             #netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
             netvlad_base = Model(self.base_model.input, netvlad_out[0])
@@ -202,7 +202,8 @@ class NetVladBase:
 
     def train_kmeans(self, kmeans_generator):
         print("Predicting local features for k-means.")
-        all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30, verbose=1)
+        all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30,
+                                                                                  verbose=1)
 
         if type(all_descs) is not list:
             all_descs = [all_descs]
@@ -233,6 +234,7 @@ class NetVladBase:
 
         del all_descs
         gc.collect()
+
 
 class NetVLADSiameseModel(NetVladBase):
     def __init__(self, **kwargs):
