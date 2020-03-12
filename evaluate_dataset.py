@@ -1,4 +1,3 @@
-import os
 import argparse
 import math
 import os
@@ -15,63 +14,49 @@ import netvlad_model as nm
 import paths
 import utils
 
-ap = argparse.ArgumentParser()
-
-ap.add_argument("-m", "--model", type=str,
-                help="path to *specific* model checkpoint to load")
-ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
-                help="Yaml file where the configuration is stored")
-ap.add_argument("-d", "--device", type=str, default="0",
-                help="CUDA device to be used. For info type '$ nvidia-smi'")
-ap.add_argument("-p", "--paris", action='store_true',
-                help="Test Paris6K")
-ap.add_argument("-o", "--oxford", action='store_true',
-                help="Test Oxford5K")
-
-args = vars(ap.parse_args())
-
-model_name = args['model']
-config_file = args['configuration']
-cuda_device = args['device']
-
-test_paris = args['paris']
-test_oxford = args['oxford']
-
-conf_file = open(config_file, 'r')
-conf = dict(yaml.safe_load(conf_file))
-conf_file.close()
-
-use_power_norm = conf['use_power_norm']
-use_multi_resolution = conf['use_multi_resolution']
-side_res = conf['input-shape']
-
-nm.NetVladBase.input_shape = (side_res, side_res, 3)
-if use_multi_resolution:
-    nm.NetVladBase.input_shape = (None, None, 3)
-
-
-def get_imlist(path):
-    return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
-
-
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
-
 
 def main():
-    print("Loading image dict")
-    path_oxford = paths.path_oxford
-    path_paris = paths.path_paris
-    path_holidays = 'holidays_2/'
+    ap = argparse.ArgumentParser()
 
-    format = 'buildings'
-    if format is 'inria':
-        path = path_holidays
-    elif format is 'buildings':
-        if test_oxford:
-            path = path_oxford
-        elif test_paris:
-            path = path_paris
+    ap.add_argument("-m", "--model", type=str,
+                    help="path to *specific* model checkpoint to load")
+    ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
+                    help="Yaml file where the configuration is stored")
+    ap.add_argument("-d", "--device", type=str, default="0",
+                    help="CUDA device to be used. For info type '$ nvidia-smi'")
+    ap.add_argument("-p", "--paris", action='store_true',
+                    help="Test Paris6K")
+    ap.add_argument("-o", "--oxford", action='store_true',
+                    help="Test Oxford5K")
+
+    args = vars(ap.parse_args())
+
+    model_name = args['model']
+    config_file = args['configuration']
+    cuda_device = args['device']
+
+    test_paris = args['paris']
+    test_oxford = args['oxford']
+
+    conf_file = open(config_file, 'r')
+    conf = dict(yaml.safe_load(conf_file))
+    conf_file.close()
+
+    use_power_norm = conf['use_power_norm']
+    use_multi_resolution = conf['use_multi_resolution']
+    side_res = conf['input-shape']
+
+    nm.NetVladBase.input_shape = (side_res, side_res, 3)
+    if use_multi_resolution:
+        nm.NetVladBase.input_shape = (None, None, 3)
+
+    def get_imlist(path):
+        return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
+
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+
+    print("Loading image dict")
 
     network_conf = conf['network']
     net_name = network_conf['name']
@@ -91,13 +76,27 @@ def main():
     vgg_netvlad.load_weights(weight_name)
     vgg_netvlad = my_model.get_netvlad_extractor()
 
-    APs = compute_aps(path, vgg_netvlad)
+    dataset = ""
+    if test_oxford:
+        dataset = 'o'
+    elif test_paris:
+        dataset = 'p'
+
+    APs = compute_aps(model=vgg_netvlad, dataset=dataset, use_power_norm=use_power_norm,
+                      use_multi_resolution=use_multi_resolution, base_resolution=side_res)
 
     print("mAP is: {}".format(np.array(APs).mean()))
 
 
-def compute_aps(dataset_path, model):
-    base_resolution = (side_res, side_res, 3)
+def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336):
+    path_oxford = paths.path_oxford
+    path_paris = paths.path_paris
+    if dataset == 'o':
+        dataset_path = path_oxford
+    else:
+        dataset_path = path_paris
+
+    base_resolution = (base_resolution, base_resolution, 3)
     input_shape_1 = (768, 768, 3)
     input_shape_2 = (504, 504, 3)
     input_shape_3 = (224, 224, 3)
@@ -106,7 +105,8 @@ def compute_aps(dataset_path, model):
     input_shapes = [input_shape_2, input_shape_3]
     datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
     print("Loading images at shape: {}".format(base_resolution))
-    gen = datagen.flow_from_directory(dataset_path, target_size=(base_resolution[0], base_resolution[1]), batch_size=batch_size,
+    gen = datagen.flow_from_directory(dataset_path, target_size=(base_resolution[0], base_resolution[1]),
+                                      batch_size=batch_size,
                                       class_mode=None,
                                       shuffle=False, interpolation='bilinear')
     print("Computing descriptors")
@@ -149,7 +149,7 @@ def compute_aps(dataset_path, model):
     APs = []
     queries = {}
     # open queries
-    if test_oxford:
+    if dataset == 'o':
         gt_path = "gt-oxford"
     else:
         gt_path = "gt-paris"
@@ -158,7 +158,7 @@ def compute_aps(dataset_path, model):
         if file.endswith("_query.txt"):
             query_file = open(gt_path + "/" + file, 'r')
 
-            if test_oxford:
+            if dataset == 'o':
                 query_pic = query_file.readline().split(" ")[0][len("oxc1_"):]
             else:
                 query_pic = query_file.readline().split(" ")[0]
