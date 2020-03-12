@@ -32,6 +32,8 @@ ap.add_argument("-c", "--configuration", type=str, default='train_configuration.
                 help="Yaml file where the configuration is stored")
 ap.add_argument("-t", "--test", action='store_true',
                 help="If the training be bypassed for testing")
+ap.add_argument("-v", "--validation", action='store_true', default=False,
+                help="Computing loss on validation test")
 ap.add_argument("-k", "--kmeans", action='store_true',
                 help="If netvlad weights should be initialized for testing")
 ap.add_argument("-d", "--device", type=str, default="0",
@@ -43,6 +45,7 @@ test_kmeans = args['kmeans']
 model_name = args['model']
 cuda_device = args['device']
 config_file = args['configuration']
+compute_validation = args['validation']
 
 conf_file = open(config_file, 'r')
 conf = dict(yaml.safe_load(conf_file))
@@ -167,19 +170,19 @@ if train:
     val_maps = []
 
     not_improving_counter = 0
-    not_improving_thresh = 15
 
     description = train_description
 
     val_loss_e = []
 
-    for s in range(steps_per_epoch_val):
-        x_val, _ = next(test_generator)
-        val_loss_s = vgg_netvlad.predict_on_batch(x_val)
-        val_loss_e.append(val_loss_s)
+    if compute_validation:
+        for s in range(steps_per_epoch_val):
+            x_val, _ = next(test_generator)
+            val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+            val_loss_e.append(val_loss_s)
 
-    starting_val_loss = np.array(val_loss_e).mean()
-    print("Starting validation loss: ", starting_val_loss)
+        starting_val_loss = np.array(val_loss_e).mean()
+        print("Starting validation loss: ", starting_val_loss)
 
     starting_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
                                      use_multi_resolution=use_multi_resolution,
@@ -219,28 +222,33 @@ if train:
 
         val_loss_e = []
 
-        for s in range(steps_per_epoch_val):
-            x_val, _ = next(test_generator)
-            val_loss_s = vgg_netvlad.predict_on_batch(x_val)
-            val_loss_e.append(val_loss_s)
+        if compute_validation:
+            for s in range(steps_per_epoch_val):
+                x_val, _ = next(test_generator)
+                val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+                val_loss_e.append(val_loss_s)
 
-        val_loss = np.array(val_loss_e).mean()
+            val_loss = np.array(val_loss_e).mean()
         val_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
                                     use_multi_resolution=use_multi_resolution,
                                     rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
 
         max_val_map = starting_map
-        min_val_loss = starting_val_loss
+        if compute_validation:
+            min_val_loss = starting_val_loss
 
         if e > 0:
             max_val_map = np.max(val_maps)
-            min_val_loss = np.min(val_losses)
+            if compute_validation:
+                min_val_loss = np.min(val_losses)
         else:
-            val_losses.append(min_val_loss)
             val_maps.append(max_val_map)
+            if compute_validation:
+                val_losses.append(min_val_loss)
 
         val_maps.append(val_map)
-        val_losses.append(val_loss)
+        if compute_validation:
+            val_losses.append(val_loss)
 
         # if val_loss < min_val_loss:
         #     model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_loss, description)
@@ -249,13 +257,13 @@ if train:
         #     not_improving_counter = 0
         if val_map > max_val_map:
             model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_map, description)
-            print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(max_val_map, model_name))
+            print("Val. mAP improved from {0:.4f}. Saving model to: {1}".format(max_val_map, model_name))
             vgg_netvlad.save_weights(model_name)
             not_improving_counter = 0
         else:
-            print("Val loss ({0:.4f}) did not improve from {1:.4f}".format(val_map, max_val_map))
+            print("Val mAP ({0:.4f}) did not improve from {1:.4f}".format(val_map, max_val_map))
             not_improving_counter += 1
-            print("Val loss does not improve since {} epochs".format(not_improving_counter))
+            print("Val mAP does not improve since {} epochs".format(not_improving_counter))
             if e % 5 == 0:
                 # model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_loss, description)
                 model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_map, description)
@@ -274,8 +282,8 @@ if train:
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",
               np.array(compute_aps(paths.landmarks_path, my_model.get_netvlad_extractor())).mean())
-
-        print("Validation loss: {}\n".format(val_loss))
+        if compute_validation:
+            print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
 
         t1 = time.time()
@@ -290,7 +298,8 @@ if train:
     plt.figure(figsize=(8, 8))
     plt.plot(val_maps, label='validation map')
     plt.plot(losses, label='training loss')
-    plt.plot(val_losses, label='validation loss')
+    if compute_validation:
+        plt.plot(val_losses, label='validation loss')
     plt.legend()
     plt.title('Train/validation loss')
     plt.savefig("train_val_loss_{}.pdf".format(description))
