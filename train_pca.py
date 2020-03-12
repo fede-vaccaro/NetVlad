@@ -75,7 +75,7 @@ print("Sampling local features")
 
 print("Computing PCA")
 dim_pca = 2048
-pca = PCA(dim_pca, svd_solver='full')
+pca = PCA(dim_pca)
 
 pca.fit(all_descs)
 

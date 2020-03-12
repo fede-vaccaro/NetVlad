@@ -197,7 +197,7 @@ if train:
         for s in pbar:
             it = K.get_value(vgg_netvlad.optimizer.iterations)
             if use_warm_up:
-                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1e-6, max_lr=1e-5, frequency=150*400, step_factor=0.1)
+                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1e-6, max_lr=1e-5, frequency=105*400, step_factor=0.1)
             else:
                 lr = max_lr
 
