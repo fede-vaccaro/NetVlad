@@ -151,7 +151,7 @@ class NetVLAD(layers.Layer):
 
         # dovrebbe da b x S x K ===> b x 1 x K
         # -2 è equivalente a 1 ? in tal caso è giusto come scritto sopra
-        a_sum = tf.math.reduce_sum(activation, -2, keepdims=True)
+        a_sum = tf.math.reduce_sum(activation, 1, keepdims=True)
 
         # moltiplica le attivazioni ai centroidi effettivi
         # (1 x K) *wise (D x K) => D x K

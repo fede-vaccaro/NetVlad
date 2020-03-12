@@ -175,7 +175,7 @@ class HolidaysTester:
         input_shape_1 = (768, 768, 3)
         input_shape_2 = (504, 504, 3)
         input_shape_3 = (224, 224, 3)
-        input_shapes = [input_shape_1, input_shape_2, input_shape_3]
+        input_shapes = [input_shape_2, input_shape_3]
         if verbose:
             print("Loading images")
         if self.img_tensor is None:
@@ -212,10 +212,12 @@ class HolidaysTester:
             pca_dataset.close()
 
             all_feats = utils.transform(all_feats, mean, components, explained_variance, whiten=True, pow_whiten=0.5)
+
         if use_power_norm:
             all_feats_sign = np.sign(all_feats)
             all_feats = np.power(np.abs(all_feats), 0.5)
             all_feats = np.multiply(all_feats, all_feats_sign)
+
         query_feats = all_feats[query_imids]
         nbrs = NearestNeighbors(n_neighbors=1491, metric='cosine').fit(all_feats)
         distances, indices = nbrs.kneighbors(query_feats)

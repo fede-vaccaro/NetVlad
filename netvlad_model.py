@@ -10,12 +10,12 @@ from keras.layers import Input, Reshape, concatenate, MaxPool2D
 from keras.models import Model
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
-
+from keras_applications.resnet import ResNet101
 from loupe_keras import NetVLAD
 from triplet_loss import L2NormLayer
 from sklearn.preprocessing import normalize
 from keras import backend as K
-
+import keras
 class NetVladBase:
     input_shape = (336, 336, 3)
 
@@ -35,8 +35,11 @@ class NetVladBase:
         # backbone.summary()
         out = backbone.get_layer(self.output_layer).output
         print(out.shape)
-        self.n_filters = int(out.shape[-1])
-        # self.n_filters = 512
+        # self.n_filters = int(out.shape[-1])
+        self.n_filters = 512
+
+        #out = layers.UpSampling2D(interpolation='bilinear')(out)
+        #out = layers.DepthwiseConv2D(kernel_size=(3,3))(out)
 
         pool_1 = layers.MaxPool2D(pool_size=self.poolings['pool_1_shape'], strides=1, padding='valid')(out)
         pool_2 = layers.MaxPool2D(pool_size=self.poolings['pool_2_shape'], strides=1, padding='valid')(out)
@@ -135,7 +138,8 @@ class NetVladBase:
         if len(netvlad_out) > 1:
             netvlad_base = Model(self.base_model.input, L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
         else:
-            netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
+            #netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
+            netvlad_base = Model(self.base_model.input, netvlad_out[0])
         self.netvlad_base = netvlad_base
 
         self.netvlad_base.summary()
@@ -298,7 +302,8 @@ class NetVladResnet(NetVladBase):
     def __init__(self, **kwargs):
         super(NetVladResnet, self).__init__(**kwargs)
 
-        model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape, layers=tf.keras.layers)
+        model = ResNet101(weights='imagenet', include_top=False, input_shape=self.input_shape, backend=keras.backend,
+                          layers=keras.layers, models=keras.models, utils=keras.utils)
 
         # set layers untrainable
         for layer in model.layers:
