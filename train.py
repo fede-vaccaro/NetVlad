@@ -189,7 +189,7 @@ if train:
                                      rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
 
     print("Starting mAP: ", starting_map)
-    print("Starting Oxford5K mAP: ", np.array(compute_aps(paths.landmarks_path, my_model.get_netvlad_extractor())).mean())
+    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=my_model.get_netvlad_extractor())).mean())
 
     for e in range(epochs):
         t0 = time.time()
@@ -281,7 +281,7 @@ if train:
 
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",
-              np.array(compute_aps(paths.landmarks_path, my_model.get_netvlad_extractor())).mean())
+              np.array(compute_aps(dataset='o', model=my_model.get_netvlad_extractor())).mean())
         if compute_validation:
             print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
