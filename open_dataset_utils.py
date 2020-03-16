@@ -8,8 +8,8 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from keras.preprocessing import image
-from keras.preprocessing.image import ImageDataGenerator
+# from keras.preprocessing import image
+# from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
