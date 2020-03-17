@@ -22,10 +22,10 @@ from torch_triplet_loss import TripletLoss
 
 ap = argparse.ArgumentParser()
 
+ap.add_argument("-e", "--export", type=str, default="",
+                help="Dir where to export checkpoints")
 ap.add_argument("-m", "--model", type=str,
                 help="path to *specific* model checkpoint to load")
-ap.add_argument("-s", "--start-epoch", type=int, default=0,
-                help="epoch to restart training at")
 ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
                 help="Yaml file where the configuration is stored")
 ap.add_argument("-t", "--test", action='store_true',
@@ -48,6 +48,7 @@ cuda_device = args['device']
 config_file = args['configuration']
 compute_validation = args['validation']
 verbose = args['verbose']
+EXPORT_DIR = args['export']
 
 conf_file = open(config_file, 'r')
 conf = dict(yaml.safe_load(conf_file))
@@ -147,9 +148,8 @@ if train:
 
     start_epoch = 0
 
-
     # define opt
-    adam = opt = torch.optim.Adam(lr=1e-5, params=vladnet.parameters())
+    adam = opt = torch.optim.Adam(lr=1e-4, params=vladnet.parameters())
 
     if use_warm_up:
         lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=1e-6, max_lr=1e-5, frequency=120 * 400, step_factor=0.1)
@@ -163,7 +163,7 @@ if train:
         checkpoint = torch.load(model_name)
         vladnet.load_state_dict(checkpoint['model_state_dict'])
         adam.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch']
+        start_epoch = checkpoint['epoch'] + 1
 
     # define loss
     criterion = TripletLoss()
@@ -220,10 +220,11 @@ if train:
 
         pbar = tqdm(range(steps_per_epoch))
 
-        vladnet.train()
         for s in pbar:
             x, y = next(train_generator)
 
+
+            vladnet.train()
             # clear gradient
             adam.zero_grad()
 
@@ -248,8 +249,6 @@ if train:
             pbar.set_description(description_tqdm)
 
         print("")
-        for param_group in adam.param_groups:
-            print(param_group['lr'])
 
         loss = np.array(losses_e).mean()
         losses.append(loss)
@@ -291,7 +290,8 @@ if train:
         #     vgg_netvlad.save_weights(model_name)
         #     not_improving_counter = 0
         if val_map > max_val_map:
-            model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_map, description)
+            model_name = "model_e{0}_{2}_{1:.4f}.pkl".format(e + start_epoch, val_map, description)
+            model_name = os.path.join(EXPORT_DIR, model_name)
             print("Val. mAP improved from {0:.4f}. Saving model to: {1}".format(max_val_map, model_name))
             torch.save({
                 'epoch': e + start_epoch,
@@ -304,7 +304,8 @@ if train:
             not_improving_counter += 1
             print("Val mAP does not improve since {} epochs".format(not_improving_counter))
             if e % 5 == 0:
-                model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_map, description)
+                model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.pkl".format(e + start_epoch, val_map, description)
+                model_name = os.path.join(EXPORT_DIR, model_name)
                 torch.save({
                     'epoch': e + start_epoch,
                     'model_state_dict': vladnet.state_dict(),
@@ -333,7 +334,8 @@ if train:
 
     init_generator.loader.stop_loading()
 
-    model_name = "model_e{}_{}_.h5".format(epochs + start_epoch, description)
+    model_name = "model_e{}_{}_.pkl".format(epochs + start_epoch, description)
+    model_name = os.path.join(EXPORT_DIR, model_name)
     torch.save({
         'epoch': e + start_epoch,
         'model_state_dict': vladnet.state_dict(),
