@@ -10,11 +10,28 @@ import matplotlib.pyplot as plt
 import numpy as np
 # from keras.preprocessing import image
 # from keras.preprocessing.image import ImageDataGenerator
+import torch
+from PIL import Image
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 import netvlad_model as nm
 import paths
+def show_triplet(triplet):
+    fig = plt.figure(figsize=(10, 10))
+    for i, t in enumerate(triplet):
+        fig.add_subplot(1, 3, i + 1)
+        t = t.astype('int')
+        plt.imshow(t)
+
+    plt.show()
+    # plt.savefig("triplets/triplet{}.jpg".format(random.randint(1, 100000)))
+    print("Triplet saved")
+    time.sleep(5)
+
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def preprocess_input(x):
@@ -45,199 +62,35 @@ def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
 
-def get_txtlist(path):
-    return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.txt')]
+def load_img(path, transform):
+    img = Image.open(path)
+    img = transform(img)
+    # img.resize(resize_shape, Image.BILINEAR)
+    return img
 
+# def open_img(path, input_shape=nm.NetVladBase.input_shape):
+#     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
+#     img = image.img_to_array(img)
+#     img = preprocess_input(img)
+#     img_id = path.split('/')[-1]
+#
+#     return img, img_id
 
-def open_img(path, input_shape=nm.NetVladBase.input_shape):
-    img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
-    img = image.img_to_array(img)
-    img = preprocess_input(img)
-    img_id = path.split('/')[-1]
-
-    return img, img_id
-
-
-def image_generator(files, index, classes, net_output=0, batch_size=64, input_shape=nm.NetVladBase.input_shape,
-                    augmentation=False):
-    train_datagen = ImageDataGenerator(rescale=1. / 255., rotation_range=60,
-                                       width_shift_range=0.2,
-                                       height_shift_range=0.2,
-                                       shear_range=0.1,
-                                       zoom_range=0.4,
-                                       horizontal_flip=False,
-                                       fill_mode='nearest')
-
-    while True:
-        batch_paths = np.random.choice(a=files,
-                                       size=batch_size)
-
-        x_batch = []
-        label_batch = []
-
-        for input_path in batch_paths:
-            img, id = open_img(input_path, input_shape=input_shape)
-            x_batch += [img]
-
-            tags = np.zeros(len(classes))
-            for i, c in enumerate(classes):
-                if c in index[id]:
-                    tags[i] = 1
-            label_batch += [tags]
-
-        y_batch = np.zeros((batch_size, net_output + len(classes)))
-        x_batch = np.array(x_batch)
-        label_batch = np.array(label_batch)
-
-        # label_cross = np.dot(label_batch, label_batch.T)
-        # label_cross_bool = label_cross.astype('bool')
-        if net_output is not 0:
-            if augmentation:
-                generator_augmentation = train_datagen.flow(x_batch, label_batch, batch_size=batch_size, shuffle=True)
-                x_batch, label_batch = next(generator_augmentation)
-                yield ([x_batch, label_batch], y_batch)
-        else:
-            yield x_batch
-
-
-def generate_index_mirflickr(path):
-    relevant_tags_txt = get_txtlist(path)
-    images_dict = {}
-    classes = []
-    for tag_txt_name in relevant_tags_txt:
-        labeled_file = open(tag_txt_name, "r")
-
-        tag_name = tag_txt_name[len(path) + 1:-4]
-
-        classes.append(tag_name)
-        for img_name in labeled_file.readlines():
-
-            img_name = "im" + str(int(img_name)) + ".jpg"
-
-            if images_dict.keys().__contains__(img_name):
-                images_dict[img_name].append(tag_name)
-            else:
-                images_dict[img_name] = [tag_name]
-    return images_dict, classes
-
-
-def generate_index_ukbench(path):
-    imnames = get_imlist(path)
-    image_dict = {}
-    classes = set()
-
-    to_strip_front = len(".jpg")
-    to_strip_back = len("ukbench/ukbench")
-
-    for name in imnames:
-        id = name[:-to_strip_front]
-        id = id[to_strip_back:]
-        id_int = int(id)
-        query = (id_int) // 4
-
-        image_dict[name[len("ukbench/"):]] = [str(query)]
-        classes.add(str(query))
-
-    return image_dict, list(classes)
-
-
-def generate_index_holidays(path):
-    # relevant_tags_txt = get_txtlist(path)
-
-    images_dict = {}
-    classes = set()
-
-    labeled_file = open(path, "r")
-
-    for line in labeled_file.readlines():
-        split = line.split(" ")[:3]
-
-        img_name = split[0]
-        img_query = split[2]
-
-        if images_dict.keys().__contains__(img_name):
-            images_dict[img_name].append(img_query)
-        else:
-            images_dict[img_name] = [img_query]
-
-        classes.add(img_query)
-
-    return images_dict, sorted(list(classes))
-
-
-def custom_generator_from_keras(train_dir, batch_size=32, net_output=None, train_classes=None):
-    if train_classes is None:
-        image_generator = ImageDataGenerator(preprocessing_function=preprocess_input)
-        """
-                                             , rotation_range=45,
-                                             width_shift_range=0.2,
-                                             height_shift_range=0.2,
-                                             shear_range=0.2,
-                                             zoom_range=0.2,
-                                             horizontal_flip=False,
-                                             fill_mode='nearest')"""
-    else:
-        image_generator = ImageDataGenerator(preprocessing_function=preprocess_input)
-
-    data_generator = image_generator.flow_from_directory(
-        # This is the target directory
-        train_dir,
-        # All images will be resized to 150x150
-        target_size=(nm.NetVladBase.input_shape[0], nm.NetVladBase.input_shape[1]),
-        batch_size=batch_size,
-        # Since we use binary_crossentropy loss, we need binary labels
-        class_mode='categorical', shuffle=False)
-    """
-    else:
-        data_generator = image_generator.flow_from_directory(
-            # This is the target directory
-            train_dir,
-            # All images will be resized to 150x150
-            target_size=(input_shape[0], input_shape[1]),
-            batch_size=batch_size,
-            # Since we use binary_crossentropy loss, we need binary labels
-            class_mode='categorical', shuffle=True)
-        generators.append(data_generator)
-    """
-    print("samples: ", data_generator.samples)
-
-    def generator():
-        i = 0
-        while True:
-            # i = i % len(generators)
-            x_, y_ = next(data_generator)
-            y_ = np.argmax(y_, axis=1)
-            i = (i + 1) % len(data_generator)
-            # print(i)
-
-            # if train_classes is not None:
-            #    classes_diff = train_classes - data_generator.num_classes
-            #    y_diff = np.zeros((len(y_), classes_diff))
-            #    y_ = np.hstack((y_, y_diff))
-            #    y_fake = np.hstack((y_fake, y_diff))
-
-            if net_output is not None:
-                y_fake = np.zeros((len(x_), net_output + 1))
-                yield ([x_, y_], y_fake)
-            else:
-                yield x_
-
-    return generator(), data_generator.samples, data_generator.num_classes
 
 
 class Loader(threading.Thread):
-    def __init__(self, batch_size, classes, n_classes, train_dir):
+    def __init__(self, batch_size, classes, n_classes, train_dir, transform):
         self.batch_size = batch_size
         self.classes = classes
         self.n_classes = n_classes
         self.train_dir = train_dir
-
+        self.transform = transform
         self.keep_loading = True
 
         self.q = queue.Queue(2)
         super(Loader, self).__init__()
 
-    def load_batch(self, batch_size, classes, n_classes, train_dir):
+    def _load_batch(self, batch_size, classes, n_classes, train_dir):
         if not self.q.full():
             shuffled_classes = list(classes)
             random.shuffle(shuffled_classes)
@@ -262,13 +115,15 @@ class Loader(threading.Thread):
             # load the images
             # print("Opening the images (producer thread)")
             for im, label, dir in imgs:
-                image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=nm.NetVladBase.input_shape)
+                image = load_img(path=train_dir + "/" + dir + "/" + im, transform=self.transform)
+                image = image.unsqueeze(0)
                 images_array.append(image)
                 label_array.append(label)
 
             # print("Images loaded")
             if self.keep_loading:
-                self.q.put((np.array(images_array), np.array(label_array)))
+                images_array = torch.cat(images_array, dim=0)
+                self.q.put((images_array, label_array))
 
             # self.q.task_done()
             # print("Object enqueued: ", (self.q.qsize()))
@@ -280,10 +135,10 @@ class Loader(threading.Thread):
 
     def run(self) -> None:
         while self.keep_loading:
-            self.load_batch_()
+            self.load_batch()
 
-    def load_batch_(self):
-        self.load_batch(self.batch_size, self.classes, self.n_classes, self.train_dir)
+    def load_batch(self):
+        self._load_batch(self.batch_size, self.classes, self.n_classes, self.train_dir)
 
     def stop_loading(self):
         self.keep_loading = False
@@ -291,13 +146,13 @@ class Loader(threading.Thread):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, mining_batch_size=2048, minibatch_size=24, model=None, use_multiprocessing=True,
+    def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, use_multiprocessing=True,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 4
 
-        self.loader = Loader(mining_batch_size, classes, n_classes, train_dir)
+        self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir, transform=model.full_transform)
         if use_multiprocessing:
             self.loader.start()
 
@@ -324,11 +179,11 @@ class LandmarkTripletGenerator():
             # if loader.q.empty():
             #   loader.q.join()
             if not self.use_multiprocessing:
-                self.loader.load_batch_()
+                self.loader.load_batch()
             images_array, label_array = self.loader.q.get()
             if self.verbose:
                 print("Computing descriptors (mining)")
-            feats = self.model.predict(images_array)
+            feats = self.model.predict_with_netvlad(images_array)
             feats = normalize(feats)
 
             nbrs = NearestNeighbors(n_neighbors=len(images_array), metric='l2').fit(feats)
@@ -390,7 +245,7 @@ class LandmarkTripletGenerator():
             triplets = selected_triplets
             losses = selected_losses
 
-            if True:
+            if False:
                 print("Different classes: {}".format(len(class_set)))
 
             im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k, _, _ in triplets]
@@ -406,29 +261,29 @@ class LandmarkTripletGenerator():
             # im_triplets = im_triplets[:K_classes]
 
             pages = math.ceil(K_classes / self.minibatch_size)
-            datagen = ImageDataGenerator(preprocessing_function=preprocess_input,
-                                         rotation_range=5,
-                                         width_shift_range=0.2,
-                                         height_shift_range=0.2,
-                                         shear_range=0.05,
-                                         zoom_range=[0.6, 1.5],
-                                         brightness_range=[0.4, 1.6],
-                                         horizontal_flip=False,
-                                         fill_mode='nearest')
+            # datagen = ImageDataGenerator(preprocessing_function=preprocess_input,
+            #                              rotation_range=5,
+            #                              width_shift_range=0.2,
+            #                              height_shift_range=0.2,
+            #                              shear_range=0.05,
+            #                              zoom_range=[0.6, 1.5],
+            #                              brightness_range=[0.4, 1.6],
+            #                              horizontal_flip=False,
+            #                              fill_mode='nearest')
 
             for page in range(pages):
                 triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
                 labels_out = im_labels[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
 
-                anchors = np.array([t[0] for t in triplets_out])
-                positives = np.array([t[1] for t in triplets_out])
+                anchors = torch.cat([t[0].unsqueeze(0) for t in triplets_out], dim=0)
+                positives = torch.cat([t[1].unsqueeze(0) for t in triplets_out], dim=0)
                 # augment positives
 
                 # positives = next(
                 #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
                 #                 batch_size=self.minibatch_size, shuffle=False))
 
-                negatives = np.array([t[2] for t in triplets_out])
+                negatives = torch.cat([t[2].unsqueeze(0) for t in triplets_out], dim=0)
 
                 yield [anchors, positives, negatives], np.array(labels_out)  # , [y_fake]*3
 
@@ -458,7 +313,7 @@ def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
     # load the images
     print("Opening the images (evaluation)")
     for im, index, dir in imgs:
-        image, _ = open_img(train_dir + "/" + dir + "/" + im, input_shape=nm.NetVladBase.input_shape)
+        image, _ = load_img(path=train_dir + "/" + dir + "/" + im, transform=model.full_transform)
         label = index
         images_array.append(image)
         label_array.append(label)
@@ -534,9 +389,9 @@ def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
             for page in range(pages):
                 triplets_out = im_triplets[page * netbatch_size: min((page + 1) * netbatch_size, DIM)]
 
-                anchors = np.array([t[0] for t in triplets_out])
-                positives = np.array([t[1] for t in triplets_out])
-                negatives = np.array([t[2] for t in triplets_out])
+                anchors = torch.cat([t[0].unsqueeze(0) for t in triplets_out], dim=0)
+                positives = torch.cat([t[1].unsqueeze(0) for t in triplets_out], dim=0)
+                negatives = torch.cat([t[2].unsqueeze(0) for t in triplets_out], dim=0)
 
                 yield [anchors, positives, negatives], None  # , [y_fake]*3
 
@@ -544,32 +399,9 @@ def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
         # yield [images_array, label_array], y_fake
 
 
-# index, classes = generate_index_ukbench('ukbench')
-# print(len(index), len(classes))
-
-# for k in sorted(index.keys()):
-#    print(k, index[k])
-# custom_generator,_ ,_  = custom_generator_from_keras("partition", 64, net_output = int(32e3))
-
-# custom_generator = holidays_triplet_generator("holidays_small_", model=model)
 import yaml
 
 
-def show_triplet(triplet):
-    fig = plt.figure(figsize=(10, 10))
-    for i, t in enumerate(triplet):
-        fig.add_subplot(1, 3, i + 1)
-        t = t.astype('int')
-        plt.imshow(t)
-
-    plt.show()
-    # plt.savefig("triplets/triplet{}.jpg".format(random.randint(1, 100000)))
-    print("Triplet saved")
-    time.sleep(5)
-
-
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def main():

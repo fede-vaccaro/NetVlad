@@ -4,11 +4,11 @@ import os
 
 import h5py
 import numpy as np
+import torch
 import yaml
-from keras.applications.vgg16 import preprocess_input
-from keras.preprocessing.image import ImageDataGenerator
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
+from torchvision.datasets import folder
 
 import netvlad_model as nm
 import paths
@@ -61,20 +61,19 @@ def main():
     network_conf = conf['network']
     net_name = network_conf['name']
 
-    my_model = None
+    vladnet = None
     if net_name == "vgg":
-        my_model = nm.NetVLADSiameseModel(**network_conf)
+        vladnet = nm.NetVLADSiameseModel(**network_conf)
     elif net_name == "resnet":
-        my_model = nm.NetVladResnet(**network_conf)
-        # my_model = nm.GeMResnet(**network_conf)
+        vladnet = nm.NetVladResnet(**network_conf)
+        # vladnet = nm.GeMResnet(**network_conf)
     else:
         print("Network name not valid.")
 
-    vgg_netvlad = my_model.build_netvladmodel()
     weight_name = model_name
     print("Loading weights: " + weight_name)
-    vgg_netvlad.load_weights(weight_name)
-    vgg_netvlad = my_model.get_netvlad_extractor()
+    checkpoint = torch.load(model_name)
+    vladnet.load_state_dict(checkpoint['model_state_dict'])
 
     dataset = ""
     if test_oxford:
@@ -82,7 +81,7 @@ def main():
     elif test_paris:
         dataset = 'p'
 
-    APs = compute_aps(model=vgg_netvlad, dataset=dataset, use_power_norm=use_power_norm,
+    APs = compute_aps(model=vladnet, dataset=dataset, use_power_norm=use_power_norm,
                       use_multi_resolution=use_multi_resolution, base_resolution=side_res)
 
     print("mAP is: {}".format(np.array(APs).mean()))
@@ -103,25 +102,31 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     input_shape_4 = (160, 160, 3)
     batch_size = 16
     input_shapes = [input_shape_2, input_shape_3]
-    datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
+
     print("Loading images at shape: {}".format(base_resolution))
-    gen = datagen.flow_from_directory(dataset_path, target_size=(base_resolution[0], base_resolution[1]),
-                                      batch_size=batch_size,
-                                      class_mode=None,
-                                      shuffle=False, interpolation='bilinear')
+    image_folder = folder.ImageFolder(root=dataset_path, transform=model.full_transform)
+    gen = torch.utils.data.DataLoader(
+        image_folder,
+        batch_size=batch_size,
+        num_workers=8,
+        shuffle=False
+    )
     print("Computing descriptors")
-    img_list = [os.path.splitext(os.path.split(f)[1])[0] for f in gen.filenames]
+    img_list = image_folder.imgs
     n_steps = math.ceil(len(img_list) / batch_size)
-    all_feats = model.predict_generator(gen, steps=n_steps, verbose=1)
+    all_feats = model.predict_generator_with_netlvad(gen, n_steps=n_steps)
     if use_multi_resolution:
         for shape in input_shapes:
             print("Loading images at shape: {}".format(shape))
-            gen = datagen.flow_from_directory(dataset_path, target_size=(shape[0], shape[1]),
-                                              batch_size=batch_size,
-                                              class_mode=None,
-                                              shuffle=False, interpolation='bilinear')
+            image_folder = folder.ImageFolder(root=dataset_path, transform=model.get_transform(shape[0]))
+            gen = torch.utils.data.DataLoader(
+                image_folder,
+                batch_size=batch_size,
+                num_workers=8,
+                shuffle=False
+            )
             print("Computing descriptors")
-            all_feats += model.predict_generator(gen, steps=n_steps, verbose=1)
+            all_feats += model.predict_generator_with_netlvad(gen, n_steps=n_steps)
     all_feats = normalize(all_feats)
     use_pca = False
     if use_pca:
@@ -145,7 +150,6 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     # imnames = all_keys
     # query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
     distances, indices = nbrs.kneighbors(all_feats)
-    print(indices.shape)
     APs = []
     queries = {}
     # open queries
@@ -166,11 +170,14 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
             query_name = file[:-len("_query.txt")]
             queries[query_pic] = query_name
     for row in indices:
-        file_name = img_list[row[0]]
+        file_name, _ = img_list[row[0]]
+        file_name = file_name.split("/")[-1].split(".")[0]
         if file_name in set(queries.keys()):
             ranked_list = []
             for j in row:
-                ranked_list += [img_list[j]]
+                file_name_j, _ = img_list[j]
+                file_name_j = file_name_j.split("/")[-1].split(".")[0]
+                ranked_list += [file_name_j]
             ap = compute_ap(query_name=queries[file_name], ranked_list=ranked_list, gt_path=gt_path)
             APs.append(ap)
     return APs

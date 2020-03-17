@@ -67,7 +67,6 @@ def create_image_dict(img_list, input_shape, preprocess_input=preprocess_input, 
     img_tensor = [tensor[key] for key in tensor]
     #img_tensor = np.array(img_tensor)
     img_tensor = torch.cat(img_tensor, dim=0)
-    print(img_tensor.shape)
     return img_tensor
 
 

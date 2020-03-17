@@ -46,11 +46,23 @@ class NetVladBase(nn.Module):
         self.transform = transform
         self.full_transform = full_transform
 
+    def get_transform(self, shape=336):
+        normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.Resize(size=(shape, shape)),
+            torchvision.transforms.ToTensor(),
+        ])
+        full_transform = torchvision.transforms.Compose([
+            transform,
+            normalize,
+        ])
+        return full_transform
+
     def init_vlad(self):
         self.netvlad_pool = NetVLAD(num_clusters=self.n_cluster, dim=self.n_filters)
         self.netvlad_out_dim = self.netvlad_pool.output_dim
 
-    def predict_with_netvlad(self, img_tensor, batch_size=16):
+    def predict_with_netvlad(self, img_tensor, batch_size=16, verbose=False):
 
         n_imgs = img_tensor.shape[0]
         descs = np.zeros((n_imgs, self.netvlad_out_dim))
@@ -64,8 +76,33 @@ class NetVladBase(nn.Module):
                 batch_gpu = img_tensor[low:high].cuda()
                 out_batch = self.forward(batch_gpu).cpu().numpy()
                 descs[low:high] = out_batch
-                print("\rPredicted batch {}/{}".format(i+1, n_iters), end='')
+                if verbose:
+                    print("\r>> Predicted batch {}/{}".format(i+1, n_iters), end='')
+            if verbose:
+                print("")
 
+        return descs
+
+    def predict_generator_with_netlvad(self, generator, n_steps, verbose=True):
+
+        descs = []
+
+        with torch.no_grad():
+            self.eval()
+            for i, X in enumerate(generator):
+                x, _ = X
+                batch_gpu = x.cuda()
+                out_batch = self.forward(batch_gpu).cpu().numpy()
+                descs.append(out_batch)
+                if verbose:
+                    print("\r>> Predicted (generator) batch {}/{}".format(i+1, n_steps), end='')
+                if i + 1 == n_steps:
+                    break
+            if verbose:
+                print("")
+
+        descs = np.vstack((m for m in descs))
+        print(descs.shape)
         return descs
 
 
@@ -103,6 +140,7 @@ class NetVladBase(nn.Module):
         # self.images_input = None
         # self.filter_l = None  # useless, just for compatibility with netvlad implementation
 
+
     def avg_pooled_features(self, x):
         x = self.base_features(x)
         out = torch.nn.functional.adaptive_avg_pool2d(x, output_size=(1, 1)).squeeze(-1).squeeze(-1)
@@ -111,67 +149,9 @@ class NetVladBase(nn.Module):
     def forward(self, x):
         x = self.features(x)
         out = self.netvlad_pool(x)
-
         return out
 
-    # def build_netvladmodel(self, kmeans=None):
-    #     netvlad_out = []
-    #     self.netvlad = []
-    #
-    #     for split in self.out_splits:
-    #         feature_size = self.n_filters
-    #
-    #         if self.middle_pca['active']:
-    #             compression_dim = self.middle_pca['dim']
-    #             pca = layers.Dense(compression_dim)
-    #             self.pca = pca
-    #             model_out = layers.Dropout(0.2)(self.base_model.output)
-    #             pca = pca(model_out)
-    #             l2normalization = L2NormLayer()(pca)
-    #
-    #             feature_size = compression_dim
-    #         else:
-    #             # l2normalization = L2NormLayer()(split)
-    #             l2normalization = split
-    #             # l2normalization = self.base_model.output
-    #
-    #         netvlad = NetVLAD(feature_size=self.split_dimension, max_samples=0,
-    #                           cluster_size=self.n_cluster)  # max samples is useless
-    #
-    #         self.netvlad += [netvlad]
-    #
-    #         netvlad_i = netvlad(l2normalization)
-    #
-    #         netvlad_out.append(netvlad_i)
-    #
-    #     if len(netvlad_out) > 1:
-    #         netvlad_base = Model(self.base_model.input,
-    #                              L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
-    #     else:
-    #         netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
-    #         # netvlad_base = Model(self.base_model.input, netvlad_out[0])
-    #     self.netvlad_base = netvlad_base
-    #
-    #     # self.netvlad_base.summary()
-    #     if kmeans is not None:
-    #         self.set_netvlad_weights(kmeans)
-    #
-    #     self.siamese_model = self.get_siamese_network()
-    #     return self.siamese_model
-
     def get_siamese_output(self, a, p, n):
-        # self.images_input = Input(shape=self.input_shape)
-        #
-        # self.anchor = Input(shape=self.input_shape)
-        # self.positive = Input(shape=self.input_shape)
-        # self.negative = Input(shape=self.input_shape)
-        #
-        # netvlad_a = self.netvlad_base([self.anchor])
-        # netvlad_p = self.netvlad_base([self.positive])
-        # netvlad_n = self.netvlad_base([self.negative])
-        # siamese_model = Model(inputs=[self.anchor, self.positive, self.negative],
-        #                       outputs=[netvlad_a, netvlad_p, netvlad_n])
-
         d_a = self.forward(a)
         d_p = self.forward(p)
         d_n = self.forward(n)
@@ -245,13 +225,14 @@ class NetVladBase(nn.Module):
                 i += 1
                 if i == n_batches:
                     break
+            print("")
 
         # locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in descs_list)).astype('float32')
         descs_list = np.array(descs_list)
         desc_dim = descs_list.shape[-1]
         locals = descs_list.reshape(-1, desc_dim)
         n_locals, dim = locals.shape
-        locals = locals[np.random.randint(n_locals, size=n_locals//3)]
+        # locals = locals[np.random.randint(n_locals, size=n_locals//3)]
         print("{} Local features of dim {}".format(n_locals, dim))
 
         np.random.shuffle(locals)
@@ -270,8 +251,8 @@ class NetVladBase(nn.Module):
         print("Fitting k-means")
         kmeans = MiniBatchKMeans(n_clusters=n_clust, random_state=424242).fit(locals)
 
-        print("Initializing NetVLAD")
         self.set_netvlad_weights(kmeans)
+        print("NetVLAD layer initialized")
 
         del descs_list
         gc.collect()
