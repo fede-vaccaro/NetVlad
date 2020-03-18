@@ -102,7 +102,6 @@ class NetVladBase(nn.Module):
                 print("")
 
         descs = np.vstack((m for m in descs))
-        print(descs.shape)
         return descs
 
 
@@ -335,7 +334,6 @@ class NetVladResnet(NetVladBase):
         base_features = list(model.children())[:-2]
         base_features = nn.Sequential(*base_features)
         base_features.load_state_dict(torch.load("imagenet-caffe-resnet101-features-10a101d.pth"))
-
         # self.regularizer = tf.keras.regularizers.l2(0.001)
         #
         # for layer in model.layers:

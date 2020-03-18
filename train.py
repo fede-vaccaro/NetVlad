@@ -149,10 +149,10 @@ if train:
     start_epoch = 0
 
     # define opt
-    adam = opt = torch.optim.Adam(lr=1e-4, params=vladnet.parameters())
+    adam = opt = torch.optim.Adam(lr=1e-5, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=1e-6, max_lr=1e-5, frequency=120 * 400, step_factor=0.1)
+        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=0.1, max_lr=1.0, frequency=120 * 400, step_factor=0.1)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
     # TODO reload model
@@ -238,7 +238,7 @@ if train:
             loss_s.backward()
 
             adam.step()
-            lr_scheduler.step(epoch=e + start_epoch + 1)
+            lr_scheduler.step(epoch=(e + start_epoch)*steps_per_epoch + s)
 
             losses_e.append(float(loss_s))
 
