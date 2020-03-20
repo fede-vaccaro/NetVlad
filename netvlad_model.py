@@ -138,8 +138,8 @@ class NetVladBase:
             netvlad_base = Model(self.base_model.input,
                                  L2NormLayer()(concatenate([netvlad for netvlad in netvlad_out])))
         else:
-            #netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
-            netvlad_base = Model(self.base_model.input, netvlad_out[0])
+            netvlad_base = Model(self.base_model.input, L2NormLayer()(netvlad_out[0]))
+            #netvlad_base = Model(self.base_model.input, netvlad_out[0])
         self.netvlad_base = netvlad_base
 
         self.netvlad_base.summary()
