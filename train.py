@@ -245,7 +245,7 @@ if train:
 
             losses_e.append(float(loss_s))
 
-            it = s + e * steps_per_epoch
+            it = s + (e + start_epoch) * steps_per_epoch
             lr = lr_lambda(it)
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                          epochs + start_epoch, lr)

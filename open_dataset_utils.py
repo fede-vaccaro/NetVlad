@@ -345,7 +345,7 @@ class LandmarkTripletGenerator():
                                             pin_memory=True)
 
             pages = math.ceil(n_triplets / self.minibatch_size)
-            print("Mining - Iterations available ({}, each of {} triplets): {}".format(n_triplets, self.minibatch_size, pages))
+            print("Mining - Iterations available ({} triplets available, in batch of {}): {}".format(n_triplets, self.minibatch_size, pages))
             for i, T in enumerate(zip(data_loader_a, data_loader_p, data_loader_n)):
                 if i == pages:
                     continue
