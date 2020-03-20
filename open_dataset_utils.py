@@ -14,9 +14,12 @@ import torch
 from PIL import Image
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
+from torch.utils import data
 
 import netvlad_model as nm
 import paths
+
+
 def show_triplet(triplet):
     fig = plt.figure(figsize=(10, 10))
     for i, t in enumerate(triplet):
@@ -68,6 +71,7 @@ def load_img(path, transform):
     # img.resize(resize_shape, Image.BILINEAR)
     return img
 
+
 # def open_img(path, input_shape=nm.NetVladBase.input_shape):
 #     img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
 #     img = image.img_to_array(img)
@@ -76,6 +80,46 @@ def load_img(path, transform):
 #
 #     return img, img_id
 
+class TripletDataset(data.DataLoader):
+    def __init__(self, triplet_list, transform):
+        super(TripletDataset, self).__init__()
+        self.transform = transform
+        self.triplet_list = triplet_list
+        print("Number of triplets generated: ", self.__len__())
+
+    def __len__(self):
+        return len(self.triplet_list)
+
+    def __getitem__(self, index):
+        im_a = load_img(path=self.triplet_list[index][0], transform=self.transform)
+        im_p = load_img(path=self.triplet_list[index][1], transform=self.transform)
+        im_n = load_img(path=self.triplet_list[index][2], transform=self.transform)
+        return im_a, im_p, im_n
+
+
+class ImagesFromListDataset(data.Dataset):
+    def __init__(self, transform, image_list, label_list=None):
+        super(ImagesFromListDataset, self).__init__()
+        self.transform = transform
+
+        self.set_image_list(image_list, label_list)
+
+    def set_image_list(self, image_list, label_list):
+        if label_list is not None:
+            assert len(image_list) == len(label_list)
+            self.label_list = label_list
+
+        self.image_list = image_list
+
+    def __len__(self):
+        return len(self.image_list)
+
+    def __getitem__(self, index):
+        im = load_img(path=self.image_list[index], transform=self.transform)
+        if hasattr(self, 'label_list'):
+            return im, self.label_list[index]
+        else:
+            return im
 
 
 class Loader(threading.Thread):
@@ -110,25 +154,25 @@ class Loader(threading.Thread):
             # pick the first batch_size (if enough)
             batch_size_ = min(batch_size, len(imgs))
             imgs = imgs[:batch_size_]
-            images_array = []
-            label_array = []
+            images_list = []
+            label_list = []
             # load the images
             # print("Opening the images (producer thread)")
             for im, label, dir in imgs:
-                image = load_img(path=train_dir + "/" + dir + "/" + im, transform=self.transform)
-                image = image.unsqueeze(0)
-                images_array.append(image)
-                label_array.append(label)
+                # image = load_img(path=train_dir + "/" + dir + "/" + im, transform=self.transform)
+                # image = image.unsqueeze(0)
+                images_list.append(train_dir + "/" + dir + "/" + im)
+                label_list.append(label)
 
             # print("Images loaded")
             if self.keep_loading:
-                images_array = torch.cat(images_array, dim=0)
-                self.q.put((images_array, label_array))
+                # images_list = torch.cat(images_list, dim=0)
+                self.q.put((images_list, label_list))
 
             # self.q.task_done()
             # print("Object enqueued: ", (self.q.qsize()))
             gc.collect()
-            # return images_array, label_array
+            # return images_list, label_list
 
     # self.images_array = np.array(images_array)
     # self.label_array = np.array(label_array)
@@ -150,12 +194,14 @@ class LandmarkTripletGenerator():
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 4
+        n_classes = mining_batch_size // 5
 
-        self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir, transform=model.full_transform)
+        self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
+                             transform=model.full_transform)
         if use_multiprocessing:
             self.loader.start()
 
+        self.transform = model.full_transform
         self.use_multiprocessing = use_multiprocessing
         self.minibatch_size = minibatch_size
         self.model = model
@@ -172,50 +218,66 @@ class LandmarkTripletGenerator():
     def generator(self):
         while True:
             if self.verbose:
-                print("New mining iteration")
-            # pick n_classes from the dirs
+                print("Mining - New iteration")
 
-            # images_array, label_array = load_batch(batch_size, classes, n_classes, train_dir)
-            # if loader.q.empty():
-            #   loader.q.join()
             if not self.use_multiprocessing:
                 self.loader.load_batch()
-            images_array, label_array = self.loader.q.get()
-            if self.verbose:
-                print("Computing descriptors (mining)")
-            feats = self.model.predict_with_netvlad(images_array)
-            feats = normalize(feats)
 
-            nbrs = NearestNeighbors(n_neighbors=len(images_array), metric='l2').fit(feats)
-            distances, indices = nbrs.kneighbors(feats)
+            image_list, label_list = self.loader.q.get()
+            if self.verbose:
+                print("Mining - Computing descriptors")
+
+            img_dataset = ImagesFromListDataset(image_list=image_list, label_list=label_list, transform=self.transform)
+            b_size = 32
+            data_loader = data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8, shuffle=False,
+                                          pin_memory=True)
+
+            n_step = math.ceil(len(img_dataset) / b_size)
+
+            feats = self.model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step, verbose=True)
+            feats = torch.Tensor(normalize(feats)).cuda()
+            if self.verbose:
+                print("Mining - Computing distances")
+            distances = (feats.mm(feats.transpose(1, 0))).cpu()
+            del feats
+            if self.verbose:
+                print("Mining - Computing indices")
+                indices = distances.argsort(descending=True)
+
+            # if self.verbose:
+            #     print("Fitting NNs")
+            # nbrs = NearestNeighbors(n_neighbors=10+self.threshold, metric='l2').fit(feats)
+            # if self.verbose:
+            #     print("Predicting NNs")
+            # distances, indices = nbrs.kneighbors(feats)
 
             triplets = []
             losses = []
 
             # find triplets:
             if self.verbose:
-                print("Finding triplets (mining)")
+                print("Mining - Finding triplets")
             for i, row in enumerate(indices):
-                anchor_label = label_array[i]
+                anchor_label = label_list[i]
 
                 j_neg = -1
                 j_pos = -1
 
                 for j, col in enumerate(row):
                     # find first negative
-                    r_label = label_array[col]
+                    r_label = label_list[col]
                     if (j_pos == -1) and (j_neg == -1) and (
                             r_label == anchor_label):  # scorre finchè non trova il primo negativo
                         continue
                     elif (j_neg == -1) and (r_label != anchor_label):
                         j_neg = j
                         if j_neg > 1 and (np.random.uniform() > 1.0 - self.semi_hard_prob):
-                           j_pos = j_neg - 1
+                            j_pos = j_neg - 1
                     elif (j_neg != -1) and (r_label == anchor_label):
                         j_pos = j
 
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
-                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_array[row[j_neg]]
+                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[j_neg]]
 
                         d_a_p = distances[i][j_pos]
                         d_a_n = distances[i][j_neg]
@@ -228,10 +290,17 @@ class LandmarkTripletGenerator():
                             triplets.append(triplet)
                             losses.append(loss)
                         break
+                    elif j_neg != -1 and j_pos == -1:
+                        if j - j_neg == self.threshold:
+                            break
 
             class_set = []
             selected_triplets = []
             selected_losses = []
+
+            del distances
+            del indices
+            torch.cuda.empty_cache()
 
             for i, t in enumerate(triplets):
                 anchor_label = t[3]
@@ -246,46 +315,59 @@ class LandmarkTripletGenerator():
             losses = selected_losses
 
             if False:
-                print("Different classes: {}".format(len(class_set)))
+                print("Mining - Different classes: {}".format(len(class_set)))
 
-            im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k, _, _ in triplets]
+            im_triplets = [[image_list[i], image_list[j], image_list[k]] for i, j, k, _, _ in triplets]
             im_labels = [[a, a, n] for _, _, _, a, n in triplets]
 
-            # del images_array, indices, distances, feats
+            # del image_list, indices, distances, feats
             # gc.collect()
 
             # select just K different classes
             # K_classes = 256
-            K_classes = len(im_triplets)
+            n_triplets = len(im_triplets)
             # K_classes = min(K_classes, len(class_set))
             # im_triplets = im_triplets[:K_classes]
 
-            pages = math.ceil(K_classes / self.minibatch_size)
-            # datagen = ImageDataGenerator(preprocessing_function=preprocess_input,
-            #                              rotation_range=5,
-            #                              width_shift_range=0.2,
-            #                              height_shift_range=0.2,
-            #                              shear_range=0.05,
-            #                              zoom_range=[0.6, 1.5],
-            #                              brightness_range=[0.4, 1.6],
-            #                              horizontal_flip=False,
-            #                              fill_mode='nearest')
+            anchors = [t[0] for t in im_triplets]
+            positives = [t[1] for t in im_triplets]
+            negatives = [t[2] for t in im_triplets]
 
-            for page in range(pages):
-                triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
-                labels_out = im_labels[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+            img_a = ImagesFromListDataset(image_list=anchors, transform=self.transform)
+            img_p = ImagesFromListDataset(image_list=positives, transform=self.transform)
+            img_n = ImagesFromListDataset(image_list=negatives, transform=self.transform)
 
-                anchors = torch.cat([t[0].unsqueeze(0) for t in triplets_out], dim=0)
-                positives = torch.cat([t[1].unsqueeze(0) for t in triplets_out], dim=0)
-                # augment positives
+            data_loader_a = data.DataLoader(dataset=img_a, batch_size=self.minibatch_size, num_workers=4, shuffle=False,
+                                            pin_memory=True)
+            data_loader_p = data.DataLoader(dataset=img_p, batch_size=self.minibatch_size, num_workers=4, shuffle=False,
+                                            pin_memory=True)
+            data_loader_n = data.DataLoader(dataset=img_n, batch_size=self.minibatch_size, num_workers=4, shuffle=False,
+                                            pin_memory=True)
 
-                # positives = next(
-                #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
-                #                 batch_size=self.minibatch_size, shuffle=False))
+            pages = math.ceil(n_triplets / self.minibatch_size)
+            print("Mining - Iterations available ({}, each of {} triplets): {}".format(n_triplets, self.minibatch_size, pages))
+            for i, T in enumerate(zip(data_loader_a, data_loader_p, data_loader_n)):
+                if i == pages:
+                    continue
+                yield T
 
-                negatives = torch.cat([t[2].unsqueeze(0) for t in triplets_out], dim=0)
-
-                yield [anchors, positives, negatives], np.array(labels_out)  # , [y_fake]*3
+            # pages = math.ceil(K_classes / self.minibatch_size)
+            #
+            # for page in range(pages):
+            #     triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+            #     labels_out = im_labels[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
+            #
+            #     anchors = torch.cat([t[0].unsqueeze(0) for t in triplets_out], dim=0)
+            #     positives = torch.cat([t[1].unsqueeze(0) for t in triplets_out], dim=0)
+            #     # augment positives
+            #
+            #     # positives = next(
+            #     #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
+            #     #                 batch_size=self.minibatch_size, shuffle=False))
+            #
+            #     negatives = torch.cat([t[2].unsqueeze(0) for t in triplets_out], dim=0)
+            #
+            #     yield [anchors, positives, negatives], np.array(labels_out)  # , [y_fake]*3
 
 
 def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
@@ -400,8 +482,6 @@ def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
 
 
 import yaml
-
-
 
 
 def main():

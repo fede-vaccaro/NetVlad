@@ -7,7 +7,7 @@ import torchvision
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
-
+import time
 from netvlad import NetVLAD, make_locals
 
 
@@ -87,21 +87,25 @@ class NetVladBase(nn.Module):
 
         descs = []
 
+        t0 = time.time()
         with torch.no_grad():
             self.eval()
             for i, X in enumerate(generator):
-                x, _ = X
+                if type(X) is type(tuple()) or type(X) is type(list()):
+                    x = X[0]
+                else:
+                    x = X
                 batch_gpu = x.cuda()
                 out_batch = self.forward(batch_gpu).cpu().numpy()
                 descs.append(out_batch)
                 if verbose:
-                    print("\r>> Predicted (generator) batch {}/{}".format(i+1, n_steps), end='')
+                    print("\r>> Predicted (w/ generator) batch {}/{}".format(i+1, n_steps), end='')
                 if i + 1 == n_steps:
                     break
             if verbose:
-                print("")
+                print("\n>> Prediction completed in {}s".format(int(time.time() - t0)))
 
-        descs = np.vstack((m for m in descs))
+        descs = np.vstack(tuple(m for m in descs))
         return descs
 
 

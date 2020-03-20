@@ -12,12 +12,12 @@ import yaml
 from torchvision.datasets import folder
 from tqdm import tqdm
 
-from evaluate_dataset import compute_aps
 import holidays_testing_helpers as hth
 import netvlad_model
 import open_dataset_utils as my_utils
 import paths
 import utils
+from evaluate_dataset import compute_aps
 from torch_triplet_loss import TripletLoss
 
 ap = argparse.ArgumentParser()
@@ -144,6 +144,8 @@ if train_kmeans:
         vladnet.pretrain_pca(image_folder)
 
 if train:
+    vladnet.cuda()
+
     steps_per_epoch = steps_per_epoch
 
     start_epoch = 0
@@ -157,13 +159,14 @@ if train:
 
     # TODO reload model
     if model_name is not None:
-        print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
         # vladnet.load_weights(model_name)
         # vgg_netvlad.summary()
         checkpoint = torch.load(model_name)
         vladnet.load_state_dict(checkpoint['model_state_dict'])
         adam.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
+        print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
+
 
     # define loss
     criterion = TripletLoss()
@@ -176,14 +179,16 @@ if train:
                                                        model=vladnet,
                                                        mining_batch_size=mining_batch_size,
                                                        minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                       threshold=threshold, use_positives_augmentation=False)
+                                                       threshold=threshold, use_positives_augmentation=False,
+                                                       use_multiprocessing=False, verbose=True)
 
     train_generator = init_generator.generator()
 
     # TODO fix
-    test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
-                                                           model=vladnet,
-                                                           netbatch_size=minibatch_size)
+    if compute_validation:
+        test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
+                                                               model=vladnet,
+                                                               netbatch_size=minibatch_size)
 
     losses = []
     val_losses = []
@@ -211,7 +216,6 @@ if train:
                                             verbose=False)
 
     print("Starting mAP: ", starting_map)
-    vladnet.cuda()
 
     for e in range(epochs):
         t0 = time.time()
@@ -220,16 +224,15 @@ if train:
 
         pbar = tqdm(range(steps_per_epoch))
 
+
         for s in pbar:
-            x, y = next(train_generator)
 
-
+            a, p, n = next(train_generator)
             vladnet.train()
             # clear gradient
             adam.zero_grad()
 
             # forward
-            a, p, n = x
             a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
 
             # loss
@@ -238,7 +241,7 @@ if train:
             loss_s.backward()
 
             adam.step()
-            lr_scheduler.step(epoch=(e + start_epoch)*steps_per_epoch + s)
+            lr_scheduler.step(epoch=(e + start_epoch) * steps_per_epoch + s)
 
             losses_e.append(float(loss_s))
 
