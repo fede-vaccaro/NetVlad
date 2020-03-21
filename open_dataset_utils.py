@@ -190,20 +190,23 @@ class Loader(threading.Thread):
 
 
 def torch_nn(feats, verbose=True):
-    feats = torch.Tensor(normalize(feats)).cuda()
+    feats = normalize(feats)
+    feats = torch.Tensor(feats)
     if verbose:
         print("Mining - Computing distances")
-    distances = (feats.mm(feats.t()))
+    distances = (feats.mm(feats.t())).cpu()
     del feats
     if verbose:
         print("Mining - Computing indices")
-    indices = distances.argsort(descending=True).cpu()
+    distances, indices = distances.sort(descending=True)
     return distances, indices
 
 
 class LandmarkTripletGenerator():
     def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, use_multiprocessing=True,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
+
+        self.print_statistics = True
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 5
@@ -221,8 +224,11 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.08000
-        self.loss_max = 0.12000
+        target_loss = 0.1
+        delta = 0.02
+
+        self.loss_min = np.max(target_loss - delta, 0)
+        self.loss_max = target_loss + delta
 
         self.use_positives_augmentation = use_positives_augmentation
 
@@ -245,7 +251,7 @@ class LandmarkTripletGenerator():
 
             n_step = math.ceil(len(img_dataset) / b_size)
 
-            feats = self.model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step, verbose=True)
+            feats = self.model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step, verbose=self.verbose)
 
             distances, indices = torch_nn(feats, verbose=self.verbose)
 
@@ -258,6 +264,9 @@ class LandmarkTripletGenerator():
 
             triplets = []
             losses = []
+
+            sh_total_loss = []
+            h_total_loss = []
 
             # find triplets:
             if self.verbose:
@@ -284,8 +293,11 @@ class LandmarkTripletGenerator():
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
                         triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[j_neg]]
 
-                        d_a_p = np.sqrt(2 - 2*float(distances[i][j_pos]))
-                        d_a_n = np.sqrt(2 - 2*float(distances[i][j_neg]))
+                        d_a_p_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_pos]), 0.0))
+                        d_a_n_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_neg]), 0.0))
+
+                        d_a_p = np.sqrt(d_a_p_2)
+                        d_a_n = np.sqrt(d_a_n_2)
 
                         # cosine distance
                         loss = 0.1 + d_a_p - d_a_n
@@ -295,6 +307,16 @@ class LandmarkTripletGenerator():
                             # print(loss)
                             triplets.append(triplet)
                             losses.append(loss)
+
+                            if j_pos - j_neg > 0:  # hard triplet
+                                h_total_loss += [loss]
+                                if loss < 0.1 or (d_a_p < d_a_n):
+                                    print("Warning, hard triplet loss is less than 0.1! {}, indices: {}, {}".format(loss, j_pos, j_neg))
+                            else:
+                                sh_total_loss += [loss]
+                                if loss > 0.1 or (d_a_p > d_a_n):
+                                    print("Warning, semi hard triplet loss is more than 0.1! {}, indices: {}, {}".format(loss, j_pos, j_neg))
+
                         break
                     elif j_neg != -1 and j_pos == -1:
                         if j - j_neg == self.threshold:
@@ -354,28 +376,29 @@ class LandmarkTripletGenerator():
             print("Mining - Iterations available: {2}; {0} triplets, in batch of {1}".format(n_triplets,
                                                                                                      self.minibatch_size,
                                                                                                      pages))
+            if self.print_statistics:
+                print("\nMining - statistics:")
+                print("SH triplets: {0}; SH Mean Loss: {1:.4f}; SH Loss STD: {2:.4f}".format(len(sh_total_loss), np.array(sh_total_loss).mean(), np.array(sh_total_loss).std()))
+                print("H triplets: {0}; H Mean Loss:{1:.4f}; H Loss STD {2:.4f}".format(len(h_total_loss), np.array(h_total_loss).mean(), np.array(h_total_loss).std()))
+
+                h_mean_loss = np.array(h_total_loss).mean()
+                sh_mean_loss = np.array(sh_total_loss).mean()
+
+                sh_triplets = len(sh_total_loss)
+                h_triplets = len(h_total_loss)
+
+                sh_weight = sh_triplets/(sh_triplets + h_triplets)
+                h_weight = h_triplets/(sh_triplets + h_triplets)
+
+                predicted_loss = h_mean_loss*h_weight + sh_mean_loss*sh_weight
+
+                print("Predicted training loss: {0:.5f}".format(predicted_loss))
+
+            print("\n")
             for i, T in enumerate(zip(data_loader_a, data_loader_p, data_loader_n)):
                 if i == pages:
                     continue
                 yield T
-
-            # pages = math.ceil(K_classes / self.minibatch_size)
-            #
-            # for page in range(pages):
-            #     triplets_out = im_triplets[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
-            #     labels_out = im_labels[page * self.minibatch_size: min((page + 1) * self.minibatch_size, K_classes)]
-            #
-            #     anchors = torch.cat([t[0].unsqueeze(0) for t in triplets_out], dim=0)
-            #     positives = torch.cat([t[1].unsqueeze(0) for t in triplets_out], dim=0)
-            #     # augment positives
-            #
-            #     # positives = next(
-            #     #    datagen.flow(np.array([restore(x) * 255.0 + 127.5 for x in positives]),
-            #     #                 batch_size=self.minibatch_size, shuffle=False))
-            #
-            #     negatives = torch.cat([t[2].unsqueeze(0) for t in triplets_out], dim=0)
-            #
-            #     yield [anchors, positives, negatives], np.array(labels_out)  # , [y_fake]*3
 
 
 def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
