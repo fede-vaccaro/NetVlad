@@ -10,6 +10,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 from torchvision.datasets import folder
 
+import open_dataset_utils as my_utils
 import netvlad_model as nm
 import paths
 import utils
@@ -145,10 +146,12 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
         all_feats = np.power(np.abs(all_feats), 0.5)
         all_feats = np.multiply(all_feats, all_feats_sign)
     all_feats = normalize(all_feats)
-    nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
-    # imnames = all_keys
-    # query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
-    distances, indices = nbrs.kneighbors(all_feats)
+
+    #nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
+    #distances, indices = nbrs.kneighbors(all_feats)
+
+    distances, indices = my_utils.torch_nn(all_feats, verbose=False)
+
     APs = []
     queries = {}
     # open queries

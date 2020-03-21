@@ -84,6 +84,8 @@ lr_conf = conf['lr']
 use_warm_up = lr_conf['warm-up']
 warm_up_steps = lr_conf['warm-up-steps']
 max_lr = float(lr_conf['max_value'])
+min_lr = float(lr_conf['min_value'])
+lr_decay = float(lr_conf['lr_decay'])
 
 # testing
 rotate_holidays = conf['rotate_holidays']
@@ -151,10 +153,11 @@ if train:
     start_epoch = 0
 
     # define opt
-    adam = opt = torch.optim.Adam(lr=1e-5, params=vladnet.parameters())
+    adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=0.1, max_lr=1.0, frequency=120 * 400, step_factor=0.1)
+        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=min_lr / max_lr, max_lr=1.0, frequency=120 * 400,
+                                    step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
     # TODO reload model
@@ -166,7 +169,6 @@ if train:
         adam.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
-
 
     # define loss
     criterion = TripletLoss()
@@ -180,7 +182,7 @@ if train:
                                                        mining_batch_size=mining_batch_size,
                                                        minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
                                                        threshold=threshold, use_positives_augmentation=False,
-                                                       use_multiprocessing=False, verbose=True)
+                                                       use_multiprocessing=False, verbose=False)
 
     train_generator = init_generator.generator()
 
@@ -224,9 +226,7 @@ if train:
 
         pbar = tqdm(range(steps_per_epoch))
 
-
         for s in pbar:
-
             a, p, n = next(train_generator)
             vladnet.train()
             # clear gradient
@@ -241,12 +241,16 @@ if train:
             loss_s.backward()
 
             adam.step()
-            lr_scheduler.step(epoch=(e + start_epoch) * steps_per_epoch + s)
+            if use_warm_up:
+                lr_scheduler.step(epoch=(e + start_epoch) * steps_per_epoch + s)
 
             losses_e.append(float(loss_s))
 
             it = s + (e + start_epoch) * steps_per_epoch
-            lr = lr_lambda(it)
+            if use_warm_up:
+                lr = lr_lambda(it)
+            else:
+                lr = max_lr
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                          epochs + start_epoch, lr)
             pbar.set_description(description_tqdm)
@@ -315,15 +319,6 @@ if train:
                     'optimizer_state_dict': adam.state_dict(),
                 }, model_name)
                 print("Saving model to: {} (checkpoint)".format(model_name))
-            # if not_improving_counter == not_improving_thresh:
-            if False:
-                # lr *= 0.5
-                # K.set_value(vgg_netvlad.optimizer.lr, lr)
-                # print("Learning rate set to: {}".format(lr))
-                opt = optimizers.Adam(lr=lr)
-                vgg_netvlad.compile(opt)
-                not_improving_counter = 0
-                print("Optimizer weights restarted.")
 
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",

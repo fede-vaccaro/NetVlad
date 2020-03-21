@@ -189,13 +189,24 @@ class Loader(threading.Thread):
         self.q.queue.clear()
 
 
+def torch_nn(feats, verbose=True):
+    feats = torch.Tensor(normalize(feats)).cuda()
+    if verbose:
+        print("Mining - Computing distances")
+    distances = (feats.mm(feats.t())).cpu()
+    del feats
+    if verbose:
+        print("Mining - Computing indices")
+    indices = distances.argsort(descending=True)
+    return distances, indices
+
+
 class LandmarkTripletGenerator():
     def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, use_multiprocessing=True,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 5
-
         self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
                              transform=model.full_transform)
         if use_multiprocessing:
@@ -210,8 +221,8 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.08000
-        self.loss_max = 0.12000
+        self.loss_min = 0.01000
+        self.loss_max = 0.14000
 
         self.use_positives_augmentation = use_positives_augmentation
 
@@ -228,21 +239,15 @@ class LandmarkTripletGenerator():
                 print("Mining - Computing descriptors")
 
             img_dataset = ImagesFromListDataset(image_list=image_list, label_list=label_list, transform=self.transform)
-            b_size = 32
+            b_size = 16
             data_loader = data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8, shuffle=False,
                                           pin_memory=True)
 
             n_step = math.ceil(len(img_dataset) / b_size)
 
             feats = self.model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step, verbose=True)
-            feats = torch.Tensor(normalize(feats)).cuda()
-            if self.verbose:
-                print("Mining - Computing distances")
-            distances = (feats.mm(feats.transpose(1, 0))).cpu()
-            del feats
-            if self.verbose:
-                print("Mining - Computing indices")
-                indices = distances.argsort(descending=True)
+
+            distances, indices = torch_nn(feats, verbose=self.verbose)
 
             # if self.verbose:
             #     print("Fitting NNs")
@@ -279,10 +284,11 @@ class LandmarkTripletGenerator():
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
                         triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[j_neg]]
 
-                        d_a_p = distances[i][j_pos]
-                        d_a_n = distances[i][j_neg]
+                        d_a_p = float(distances[i][j_pos])
+                        d_a_n = float(distances[i][j_neg])
 
-                        loss = 0.1 + d_a_p - d_a_n
+                        # cosine distance
+                        loss = 0.1 - 2*d_a_p + 2*d_a_n
 
                         # print(loss)
                         if self.loss_min < loss < self.loss_max:
@@ -345,7 +351,9 @@ class LandmarkTripletGenerator():
                                             pin_memory=True)
 
             pages = math.ceil(n_triplets / self.minibatch_size)
-            print("Mining - Iterations available ({} triplets available, in batch of {}): {}".format(n_triplets, self.minibatch_size, pages))
+            print("Mining - Iterations available: {2}; {0} triplets, in batch of {1}".format(n_triplets,
+                                                                                                     self.minibatch_size,
+                                                                                                     pages))
             for i, T in enumerate(zip(data_loader_a, data_loader_p, data_loader_n)):
                 if i == pages:
                     continue
