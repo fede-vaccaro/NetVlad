@@ -221,8 +221,8 @@ class LandmarkTripletGenerator():
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
-        self.loss_min = 0.01000
-        self.loss_max = 0.14000
+        self.loss_min = 0.08000
+        self.loss_max = 0.12000
 
         self.use_positives_augmentation = use_positives_augmentation
 
@@ -284,11 +284,11 @@ class LandmarkTripletGenerator():
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
                         triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[j_neg]]
 
-                        d_a_p = float(distances[i][j_pos])
-                        d_a_n = float(distances[i][j_neg])
+                        d_a_p = np.sqrt(2 - 2*float(distances[i][j_pos]))
+                        d_a_n = np.sqrt(2 - 2*float(distances[i][j_neg]))
 
                         # cosine distance
-                        loss = 0.1 - 2*d_a_p + 2*d_a_n
+                        loss = 0.1 + d_a_p - d_a_n
 
                         # print(loss)
                         if self.loss_min < loss < self.loss_max:
