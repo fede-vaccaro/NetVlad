@@ -70,6 +70,8 @@ class NetVladBase(nn.Module):
 
         with torch.no_grad():
             self.eval()
+            if verbose:
+                print("")
             for i in range(n_iters):
                 low = i*batch_size
                 high = int(np.min([n_imgs, (i + 1) * batch_size]))
@@ -90,6 +92,7 @@ class NetVladBase(nn.Module):
         t0 = time.time()
         with torch.no_grad():
             self.eval()
+            print("")
             for i, X in enumerate(generator):
                 if type(X) is type(tuple()) or type(X) is type(list()):
                     x = X[0]
