@@ -2,10 +2,12 @@ import argparse
 import os
 
 import h5py
+import torch
 import yaml
 from keras.applications.vgg16 import preprocess_input
 from keras.preprocessing import image
 from sklearn.decomposition import PCA
+from torchvision.datasets import folder
 
 import netvlad_model as nm
 import paths
@@ -47,29 +49,32 @@ os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 network_conf = conf['network']
 net_name = network_conf['name']
 
-my_model = None
+vladnet = None
 if net_name == "vgg":
-    my_model = nm.NetVLADSiameseModel(**network_conf)
+    vladnet = nm.NetVLADSiameseModel(**network_conf)
 elif net_name == "resnet":
-    my_model = nm.NetVladResnet(**network_conf)
+    vladnet = nm.NetVladResnet(**network_conf)
 else:
     print("Network name not valid.")
 
-vgg_netvlad = my_model.build_netvladmodel()
 weight_name = model_name
 print("Loading weights: " + weight_name)
-vgg_netvlad.load_weights(weight_name)
-vgg_netvlad = my_model.get_netvlad_extractor()
+checkpoint = torch.load(model_name)
+vladnet.load_state_dict(checkpoint['model_state_dict'])
+vladnet.cuda()
 
-kmeans_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
-    paths.landmarks_path,
-    target_size=(nm.NetVladBase.input_shape[0], nm.NetVladBase.input_shape[1]),
-    batch_size=64//4,
-    class_mode=None,
-    interpolation='bilinear', seed=4242)
+image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
+gen = torch.utils.data.DataLoader(
+    image_folder,
+    batch_size=16,
+    num_workers=8,
+    shuffle=True,
+)
 
-all_descs = vgg_netvlad.predict_generator(generator=kmeans_generator, steps=int(1024)*2, verbose=1)
-print("All descs shape: ", all_descs.shape)
+
+all_feats = vladnet.predict_generator_with_netlvad(generator=gen, n_steps=4096)
+
+print("All descs shape: ", all_feats.shape)
 
 print("Sampling local features")
 
@@ -77,7 +82,7 @@ print("Computing PCA")
 dim_pca = 2048
 pca = PCA(dim_pca)
 
-pca.fit(all_descs)
+pca.fit(all_feats)
 
 pca_dataset = h5py.File("pca_{}.h5".format(dim_pca), 'w')
 pca_dataset.create_dataset('components', data=pca.components_)

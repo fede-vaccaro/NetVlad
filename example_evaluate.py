@@ -28,8 +28,8 @@ download_datasets(data_root)
 download_features(data_root)
 
 # Set test dataset: roxford5k | rparis6k
-# test_dataset = 'roxford5k'
-test_dataset = 'rparis6k'
+test_dataset = 'roxford5k'
+# test_dataset = 'rparis6k'
 
 #---------------------------------------------------------------------
 # Evaluate
@@ -46,8 +46,8 @@ print('>> {}: Loading features...'.format(test_dataset))
 # Q = features['Q']
 # X = features['X']
 
-dim = 2048
 Q_dataset = h5py.File('Q.h5','r')
+dim = Q_dataset[list(Q_dataset.keys())[0]][:].shape[0]
 
 n_queries = len(Q_dataset.keys())
 Q = np.zeros((n_queries, dim))

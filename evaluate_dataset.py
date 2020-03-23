@@ -75,6 +75,7 @@ def main():
     print("Loading weights: " + weight_name)
     checkpoint = torch.load(model_name)
     vladnet.load_state_dict(checkpoint['model_state_dict'])
+    vladnet.cuda()
 
     dataset = ""
     if test_oxford:
@@ -83,12 +84,12 @@ def main():
         dataset = 'p'
 
     APs = compute_aps(model=vladnet, dataset=dataset, use_power_norm=use_power_norm,
-                      use_multi_resolution=use_multi_resolution, base_resolution=side_res)
+                      use_multi_resolution=use_multi_resolution, base_resolution=side_res, verbose=True)
 
     print("mAP is: {}".format(np.array(APs).mean()))
 
 
-def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336):
+def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336, verbose=False):
     path_oxford = paths.path_oxford
     path_paris = paths.path_paris
     if dataset == 'o':
@@ -115,7 +116,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     print("Computing descriptors")
     img_list = image_folder.imgs
     n_steps = math.ceil(len(img_list) / batch_size)
-    all_feats = model.predict_generator_with_netlvad(gen, n_steps=n_steps)
+    all_feats = model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
     if use_multi_resolution:
         for shape in input_shapes:
             print("Loading images at shape: {}".format(shape))
@@ -127,9 +128,9 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
                 shuffle=False
             )
             print("Computing descriptors")
-            all_feats += model.predict_generator_with_netlvad(gen, n_steps=n_steps)
+            all_feats += model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
     all_feats = normalize(all_feats)
-    use_pca = False
+    use_pca = True
     if use_pca:
         n_components = 2048
 

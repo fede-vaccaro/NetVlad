@@ -242,11 +242,17 @@ class HolidaysTester:
                 if shape[0] >= 768:
                     batch_size = 12
 
-                img_dataset.shape = shape[0]
+                img_dataset = HolidaysDataset(img_list=get_imlist(paths.holidays_pic_path), shape=base_resolution[0],
+                                              transform=model.get_transform(shape[0]))
+                b_size = 32
+                data_loader = torch.utils.data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8,
+                                                          shuffle=False,
+                                                          pin_memory=True)
+
                 all_feats += model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step)
 
         all_feats = normalize(all_feats)
-        use_pca = False
+        use_pca = True
         if use_pca:
             n_components = 2048
 
