@@ -156,7 +156,7 @@ if train:
     adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=min_lr / max_lr, max_lr=1.0, frequency=120 * 400,
+        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=min_lr / max_lr, max_lr=1.0, frequency=100 * 400,
                                     step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
@@ -182,7 +182,7 @@ if train:
                                                        mining_batch_size=mining_batch_size,
                                                        minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
                                                        threshold=threshold, use_positives_augmentation=False,
-                                                       use_multiprocessing=False, verbose=True)
+                                                       use_multiprocessing=False, verbose=False)
 
     train_generator = init_generator.generator()
 
@@ -228,7 +228,7 @@ if train:
 
         for s in pbar:
             a, p, n = next(train_generator)
-            vladnet.train()
+            vladnet.eval()
             # clear gradient
             adam.zero_grad()
 

@@ -10,13 +10,14 @@ def transform(X, mean, components, explained_variance=None, pow_whiten=0.5, whit
     return X_transformed
 
 
-def lr_warmup(frequency, min_lr=1e-6, max_lr=1e-5, step_factor=0.1, wu_steps=2000, weight_decay=2e-6):
+def lr_warmup(frequency, min_lr=1e-6, max_lr=1e-5, step_factor=0.5, wu_steps=2000, weight_decay=2e-6):
     def funct(it, min_lr, max_lr, step_factor, wu_steps):
         if it < wu_steps:
             lr = max_lr * it / wu_steps + min_lr * (1. - it / wu_steps)
         else:
+            # n_cuts = min(int(np.floor(it / frequency)),1)
             n_cuts = int(np.floor(it / frequency))
-            step_factor = step_factor ** min(n_cuts, 1)
+            step_factor = step_factor ** n_cuts
             lr = max_lr * step_factor
 
         return lr * 1 / (1 + it * weight_decay)

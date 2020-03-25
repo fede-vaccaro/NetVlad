@@ -206,7 +206,7 @@ class LandmarkTripletGenerator():
     def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, use_multiprocessing=True,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
 
-        self.print_statistics = True
+        self.print_statistics = False
         classes = os.listdir(train_dir)
 
         n_classes = mining_batch_size // 5
