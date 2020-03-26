@@ -228,7 +228,7 @@ if train:
 
         for s in pbar:
             a, p, n = next(train_generator)
-            vladnet.train()
+            vladnet.eval()
             # clear gradient
             adam.zero_grad()
 
@@ -310,7 +310,7 @@ if train:
             print("Val mAP ({0:.4f}) did not improve from {1:.4f}".format(val_map, max_val_map))
             not_improving_counter += 1
             print("Val mAP does not improve since {} epochs".format(not_improving_counter))
-            if (e + start_epoch) % 5 == 0:
+            if (e + start_epoch) % 10 == 0:
                 model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.pkl".format(e + start_epoch, val_map, description)
                 model_name = os.path.join(EXPORT_DIR, model_name)
                 torch.save({

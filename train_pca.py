@@ -35,7 +35,7 @@ use_multi_resolution = conf['use_multi_resolution']
 side_res = conf['input-shape']
 
 nm.NetVladBase.input_shape = (side_res, side_res, 3)
-if use_multi_resolution:
+if False:
     nm.NetVladBase.input_shape = (None, None, 3)
 
 
@@ -84,7 +84,7 @@ pca = PCA(dim_pca)
 
 pca.fit(all_feats)
 
-pca_dataset = h5py.File("pca_{}.h5".format(dim_pca), 'w')
+pca_dataset = h5py.File("pca_e300.h5".format(dim_pca), 'w')
 pca_dataset.create_dataset('components', data=pca.components_)
 pca_dataset.create_dataset('mean', data=pca.mean_)
 pca_dataset.create_dataset('explained_variance', data=pca.explained_variance_)

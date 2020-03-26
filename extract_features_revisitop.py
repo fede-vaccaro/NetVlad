@@ -75,7 +75,8 @@ elif net_name == "resnet":
 else:
     print("Network name not valid.")
 
-weight_name = "model_e90_resnet-101-torch-caffe-lrscheduling_0.9165_checkpoint.pkl"
+# weight_name = "model_e300_resnet-101-torch-caffe-lrscheduling_0.9296_checkpoint.pkl"
+weight_name = "vladnet.pkl"
 print("Loading weights: " + weight_name)
 checkpoint = torch.load(weight_name)
 vladnet.load_state_dict(checkpoint['model_state_dict'])
@@ -92,7 +93,7 @@ data_root = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file
 download_datasets(data_root)
 
 # Set test dataset: roxford5k | rparis6k
-test_dataset = 'roxford5k'
+test_dataset = 'rparis6k'
 
 
 # ---------------------------------------------------------------------
@@ -123,7 +124,7 @@ def save_dict_to_h5(name, dict):
     dataset.close()
 
 
-pca_dataset = h5py.File("pca_2048.h5", 'r')
+pca_dataset = h5py.File("pca.h5", 'r')
 mean = pca_dataset['mean'][:]
 components = pca_dataset['components'][:]
 explained_variance = pca_dataset['explained_variance'][:]
@@ -135,22 +136,67 @@ pca['components'] = components
 pca['explained_variance'] = explained_variance
 
 
-def extract_feat(model, img, multiresolution=False, pca=None):
+def get_scaled_image_(img, target):
+    x, y = img.size
+
+    ratio = x/y
+    if x > y:
+        x_new = int(target*ratio)
+        y_new = target
+    else:
+        x_new = target
+        y_new = int(target/ratio)
+
+    return x_new, y_new
+
+def make_square(im, min_size=256, fill_color=(255, 255, 255)):
+    x, y = im.size
+    size = max(min_size, x, y)
+    new_im = Image.new('RGB', (size, size), fill_color)
+    new_im.paste(im, (int((size - x) / 2), int((size - y) / 2)))
+    return new_im
+
+
+def get_scaled_image(img, target):
+    x, y = img.size
+
+    r = x/y
+    a = target**2
+
+    y_new = int((a/r)**0.5)
+    x_new = int(y_new*r)
+    return x_new, y_new
+
+def get_scaled_query(img, target_side):
+    x, y = img.size
+    ratio = x/y
+
+    if x > y:
+        new_x = target_side
+        new_y = target_side/ratio
+    else:
+        new_x = target_side*ratio
+        new_y = target_side
+
+    return int(new_x), int(new_y)
+
+
+def extract_feat(model, img, multiresolution=False, pca=None, query=False):
     with torch.no_grad():
-        img_1 = model.full_transform(img).unsqueeze(0).cuda()
-        desc = model(img_1).cpu().numpy()
+        img_1 = model.get_transform(int(336*0.75) if query else 336)(img).unsqueeze(0)
+        desc = model.predict_with_netvlad(img_1)
 
         if multiresolution:
-            img_2 = model.get_transform(504)(img).unsqueeze(0).cuda()
-            desc += model(img_2).cpu().numpy()
+            img_2 = model.get_transform(int(504*0.75) if query else 504)(img).unsqueeze(0)
+            desc += model.predict_with_netvlad(img_2)
 
-            img_3 = model.get_transform(224)(img).unsqueeze(0).cuda()
-            desc += model(img_3).cpu().numpy()
+            img_3 = model.get_transform(int(224*0.75) if query else 224)(img).unsqueeze(0)
+            desc += model.predict_with_netvlad(img_3)
 
             desc /= np.linalg.norm(desc, ord=2)
 
         if pca is not None:
-            desc = utils.transform(desc, pca["mean"], pca["components"], pca["explained_variance"], whiten=True,
+            desc = utils.transform(desc, mean=pca["mean"], components=pca["components"], explained_variance=pca["explained_variance"], whiten=True,
                                    pow_whiten=0.5)
 
         desc /= np.linalg.norm(desc, ord=2)
@@ -159,24 +205,27 @@ def extract_feat(model, img, multiresolution=False, pca=None):
 
 Q = {}
 
+import time
+
+import matplotlib.pyplot as plt
+
 # query images
 for i in np.arange(cfg['nq']):
-    qim = pil_loader(cfg['qim_fname'](cfg, i))#.crop(cfg['gnd'][i]['bbx'])
-
-    Q[str(i)] = extract_feat(vladnet, qim, multiresolution=True, pca=pca)
+    qim = pil_loader(cfg['qim_fname'](cfg, i)).crop(cfg['gnd'][i]['bbx'])
+    #qim.show()
+    #time.sleep(1)
+    qim = make_square(qim)
+    Q[str(i)] = extract_feat(vladnet, qim, multiresolution=True, pca=pca, query=True)
 
     print('>> {}: Processing query image {}'.format(test_dataset, i + 1))
-
 save_dict_to_h5('Q.h5', Q)
 
 X = {}
 
 for i in np.arange(cfg['n']):
     im = pil_loader(cfg['im_fname'](cfg, i))
-
     X[str(i)] = extract_feat(vladnet, im, multiresolution=True, pca=pca)
 
-    if (i % 50) == 0:
-        print('>> {}: Processing database image {}'.format(test_dataset, i + 1))
+    print('>> {}: Processing database image {}'.format(test_dataset, i + 1))
 
 save_dict_to_h5('X.h5', X)

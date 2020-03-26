@@ -134,7 +134,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     if use_pca:
         n_components = 2048
 
-        pca_dataset = h5py.File("pca_{}.h5".format(n_components), 'r')
+        pca_dataset = h5py.File("pca_e300.h5".format(n_components), 'r')
         mean = pca_dataset['mean'][:]
         components = pca_dataset['components'][:]
         explained_variance = pca_dataset['explained_variance'][:]

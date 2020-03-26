@@ -1,4 +1,5 @@
 import gc
+import time
 
 import numpy as np
 import torch
@@ -7,7 +8,7 @@ import torchvision
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
-import time
+
 from netvlad import NetVLAD, make_locals
 
 
@@ -30,6 +31,9 @@ class NetVladBase(nn.Module):
         self.feature_compression = kwargs['pooling_feature_compression']
 
         # self.regularizer = tf.keras.regularizers.l2(0.001)
+        if self.middle_pca['active']:
+            self.conv_1 = torch.nn.Conv2d(2048, 2048, kernel_size=1,stride=1)
+            self.conv_1.cuda()
 
         self.n_filters = None
 
@@ -46,10 +50,14 @@ class NetVladBase(nn.Module):
         self.transform = transform
         self.full_transform = full_transform
 
-    def get_transform(self, shape=336):
+    def get_transform(self, shape):
+        if type(shape) is type(1):
+            shape_ = (shape, shape)
+        else:
+            shape_ = shape
         normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(size=(shape, shape)),
+            torchvision.transforms.Resize(size=shape_),
             torchvision.transforms.ToTensor(),
         ])
         full_transform = torchvision.transforms.Compose([
@@ -66,20 +74,20 @@ class NetVladBase(nn.Module):
 
         n_imgs = img_tensor.shape[0]
         descs = np.zeros((n_imgs, self.netvlad_out_dim))
-        n_iters = int(np.ceil(n_imgs/batch_size))
+        n_iters = int(np.ceil(n_imgs / batch_size))
 
         with torch.no_grad():
             self.eval()
             if verbose:
                 print("")
             for i in range(n_iters):
-                low = i*batch_size
+                low = i * batch_size
                 high = int(np.min([n_imgs, (i + 1) * batch_size]))
                 batch_gpu = img_tensor[low:high].cuda()
                 out_batch = self.forward(batch_gpu).cpu().numpy()
                 descs[low:high] = out_batch
                 if verbose:
-                    print("\r>> Predicted batch {}/{}".format(i+1, n_iters), end='')
+                    print("\r>> Predicted batch {}/{}".format(i + 1, n_iters), end='')
             if verbose:
                 print("")
 
@@ -102,7 +110,7 @@ class NetVladBase(nn.Module):
                 out_batch = self.forward(batch_gpu).cpu().numpy()
                 descs.append(out_batch)
                 if verbose:
-                    print("\r>> Predicted (w/ generator) batch {}/{}".format(i+1, n_steps), end='')
+                    print("\r>> Predicted (w/ generator) batch {}/{}".format(i + 1, n_steps), end='')
                 if i + 1 == n_steps:
                     break
             if verbose:
@@ -111,14 +119,16 @@ class NetVladBase(nn.Module):
         descs = np.vstack(tuple(m for m in descs))
         return descs
 
-
-
     def features(self, x):
         # backbone.summary()
         x = self.base_features(x)
+        x = self.conv_1(x)
 
-        pool_1 = nn.functional.max_pool2d(x, kernel_size=3, stride=1)
-        pool_2 = nn.functional.max_pool2d(x, kernel_size=2, stride=1)
+        pool_1 = nn.functional.max_pool2d(x, kernel_size=2, stride=1)
+        pool_2 = nn.functional.max_pool2d(x, kernel_size=3, stride=1)
+
+        # pool_1 = nn.functional.adaptive_max_pool2d(x, output_size=(10,10))
+        # pool_2 = nn.functional.adaptive_max_pool2d(x, output_size=(9,9))
 
         out_reshaped = make_locals(x, n_filters=self.n_filters)
         pool_1_reshaped = make_locals(pool_1, n_filters=self.n_filters)
@@ -145,7 +155,6 @@ class NetVladBase(nn.Module):
         # self.siamese_model = None
         # self.images_input = None
         # self.filter_l = None  # useless, just for compatibility with netvlad implementation
-
 
     def avg_pooled_features(self, x):
         x = self.base_features(x)
@@ -243,7 +252,8 @@ class NetVladBase(nn.Module):
 
         np.random.shuffle(locals)
 
-        if self.middle_pca['pretrain'] and self.middle_pca['active']:
+        if False:
+        #if self.middle_pca['pretrain'] and self.middle_pca['active']:
             print("Training PCA")
             pca = PCA(self.middle_pca['dim'])
             locals = pca.fit_transform(locals)
@@ -335,7 +345,7 @@ class NetVladResnet(NetVladBase):
         model = getattr(torchvision.models, 'resnet101')(pretrained=False)
 
         # sobstitute relu with Identity
-        model.layer4[2].relu = nn.Identity()
+        #model.layer4[2].relu = nn.Identity()
 
         # get base_features
         base_features = list(model.children())[:-2]
