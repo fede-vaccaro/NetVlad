@@ -125,7 +125,8 @@ train_pca = False
 train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca
 train = not test
 
-if train_kmeans:
+if False:
+# if train_kmeans:
     image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(

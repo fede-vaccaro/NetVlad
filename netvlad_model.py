@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
 import time
 from netvlad import NetVLAD, make_locals
-
+from pooling import GeM
 
 def normalize_torch(x):
     return torch.nn.functional.normalize(x, dim=2, p=2)
@@ -59,8 +59,9 @@ class NetVladBase(nn.Module):
         return full_transform
 
     def init_vlad(self):
-        self.netvlad_pool = NetVLAD(num_clusters=self.n_cluster, dim=self.n_filters)
-        self.netvlad_out_dim = self.netvlad_pool.output_dim
+        # self.netvlad_pool = NetVLAD(num_clusters=self.n_cluster, dim=self.n_filters)
+        self.netvlad_pool = GeM()
+        self.netvlad_out_dim = 2048#self.netvlad_pool.output_dim
 
     def predict_with_netvlad(self, img_tensor, batch_size=16, verbose=False):
 
@@ -153,8 +154,10 @@ class NetVladBase(nn.Module):
         return out
 
     def forward(self, x):
-        x = self.features(x)
-        out = self.netvlad_pool(x)
+        # x = self.features(x)
+        x = self.base_features(x)
+        x = self.netvlad_pool(x).squeeze(-1).squeeze(-1)
+        out =torch.nn.functional.normalize(x, dim=1, p=2)
         return out
 
     def get_siamese_output(self, a, p, n):
@@ -335,7 +338,7 @@ class NetVladResnet(NetVladBase):
         model = getattr(torchvision.models, 'resnet101')(pretrained=False)
 
         # sobstitute relu with Identity
-        model.layer4[2].relu = nn.Identity()
+        # model.layer4[2].relu = nn.Identity()
 
         # get base_features
         base_features = list(model.children())[:-2]
