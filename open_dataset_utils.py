@@ -209,7 +209,7 @@ class LandmarkTripletGenerator():
         self.print_statistics = False
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 5
+        n_classes = mining_batch_size // 10
         self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
                              transform=model.full_transform)
         if use_multiprocessing:
@@ -361,9 +361,9 @@ class LandmarkTripletGenerator():
             positives = [t[1] for t in im_triplets]
             negatives = [t[2] for t in im_triplets]
 
-            img_a = ImagesFromListDataset(image_list=anchors, transform=self.transform)
-            img_p = ImagesFromListDataset(image_list=positives, transform=self.transform)
-            img_n = ImagesFromListDataset(image_list=negatives, transform=self.transform)
+            img_a = ImagesFromListDataset(image_list=anchors, transform=self.model.train_transform)
+            img_p = ImagesFromListDataset(image_list=positives, transform=self.model.train_transform)
+            img_n = ImagesFromListDataset(image_list=negatives, transform=self.model.train_transform)
 
             data_loader_a = data.DataLoader(dataset=img_a, batch_size=self.minibatch_size, num_workers=4, shuffle=False,
                                             pin_memory=True)

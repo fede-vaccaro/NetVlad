@@ -32,7 +32,7 @@ class NetVladBase(nn.Module):
 
         # self.regularizer = tf.keras.regularizers.l2(0.001)
         if self.middle_pca['active']:
-            self.conv_1 = torch.nn.Conv2d(2048, 2048, kernel_size=1,stride=1)
+            self.conv_1 = torch.nn.Conv2d(2048, 2048, kernel_size=1, stride=1)
             self.conv_1.cuda()
 
         self.n_filters = None
@@ -42,6 +42,11 @@ class NetVladBase(nn.Module):
             torchvision.transforms.Resize(size=(336, 336)),
             torchvision.transforms.ToTensor(),
         ])
+        train_transform = torchvision.transforms.Compose([
+            torchvision.transforms.Resize(size=(504, 504)),
+            torchvision.transforms.RandomCrop(size=(336, 336)),
+            normalize
+        ])
         full_transform = torchvision.transforms.Compose([
             transform,
             normalize,
@@ -49,6 +54,7 @@ class NetVladBase(nn.Module):
         self.normalize = normalize
         self.transform = transform
         self.full_transform = full_transform
+        self.train_transform = train_transform
 
     def get_transform(self, shape):
         if type(shape) is type(1):
@@ -253,7 +259,7 @@ class NetVladBase(nn.Module):
         np.random.shuffle(locals)
 
         if False:
-        #if self.middle_pca['pretrain'] and self.middle_pca['active']:
+            # if self.middle_pca['pretrain'] and self.middle_pca['active']:
             print("Training PCA")
             pca = PCA(self.middle_pca['dim'])
             locals = pca.fit_transform(locals)
@@ -345,7 +351,7 @@ class NetVladResnet(NetVladBase):
         model = getattr(torchvision.models, 'resnet101')(pretrained=False)
 
         # sobstitute relu with Identity
-        #model.layer4[2].relu = nn.Identity()
+        # model.layer4[2].relu = nn.Identity()
 
         # get base_features
         base_features = list(model.children())[:-2]
