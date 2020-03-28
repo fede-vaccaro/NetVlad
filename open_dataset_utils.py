@@ -204,11 +204,11 @@ def torch_nn(feats, verbose=True):
 
 class LandmarkTripletGenerator():
     def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, use_multiprocessing=True,
-                 semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False):
+                 semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False, use_crop=False):
 
         self.print_statistics = False
         classes = os.listdir(train_dir)
-
+        self.use_crop = use_crop
         n_classes = mining_batch_size // 5
         self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
                              transform=model.full_transform)
@@ -251,7 +251,8 @@ class LandmarkTripletGenerator():
 
             n_step = math.ceil(len(img_dataset) / b_size)
 
-            feats = self.model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step, verbose=self.verbose)
+            feats = self.model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step,
+                                                              verbose=self.verbose)
 
             distances, indices = torch_nn(feats, verbose=self.verbose)
 
@@ -311,11 +312,16 @@ class LandmarkTripletGenerator():
                             if j_pos - j_neg > 0:  # hard triplet
                                 h_total_loss += [loss]
                                 if loss < 0.1 or (d_a_p < d_a_n):
-                                    print("Warning, hard triplet loss is less than 0.1! {}, indices: {}, {}".format(loss, j_pos, j_neg))
+                                    print(
+                                        "Warning, hard triplet loss is less than 0.1! {}, indices: {}, {}".format(loss,
+                                                                                                                  j_pos,
+                                                                                                                  j_neg))
                             else:
                                 sh_total_loss += [loss]
                                 if loss > 0.1 or (d_a_p > d_a_n):
-                                    print("Warning, semi hard triplet loss is more than 0.1! {}, indices: {}, {}".format(loss, j_pos, j_neg))
+                                    print(
+                                        "Warning, semi hard triplet loss is more than 0.1! {}, indices: {}, {}".format(
+                                            loss, j_pos, j_neg))
 
                         break
                     elif j_neg != -1 and j_pos == -1:
@@ -361,9 +367,12 @@ class LandmarkTripletGenerator():
             positives = [t[1] for t in im_triplets]
             negatives = [t[2] for t in im_triplets]
 
-            img_a = ImagesFromListDataset(image_list=anchors, transform=self.model.train_transform)
-            img_p = ImagesFromListDataset(image_list=positives, transform=self.model.train_transform)
-            img_n = ImagesFromListDataset(image_list=negatives, transform=self.model.train_transform)
+            img_a = ImagesFromListDataset(image_list=anchors,
+                                          transform=self.model.train_transform if self.use_crop else self.transform)
+            img_p = ImagesFromListDataset(image_list=positives,
+                                          transform=self.model.train_transform if self.use_crop else self.transform)
+            img_n = ImagesFromListDataset(image_list=negatives,
+                                          transform=self.model.train_transform if self.use_crop else self.transform)
 
             data_loader_a = data.DataLoader(dataset=img_a, batch_size=self.minibatch_size, num_workers=4, shuffle=False,
                                             pin_memory=True)
@@ -374,12 +383,18 @@ class LandmarkTripletGenerator():
 
             pages = math.ceil(n_triplets / self.minibatch_size)
             print("Mining - Iterations available: {2}; {0} triplets, in batch of {1}".format(n_triplets,
-                                                                                                     self.minibatch_size,
-                                                                                                     pages))
+                                                                                             self.minibatch_size,
+                                                                                             pages))
             if self.print_statistics:
                 print("\nMining - statistics:")
-                print("SH triplets: {0}; SH Mean Loss: {1:.4f}; SH Loss STD: {2:.4f}".format(len(sh_total_loss), np.array(sh_total_loss).mean(), np.array(sh_total_loss).std()))
-                print("H triplets: {0}; H Mean Loss:{1:.4f}; H Loss STD {2:.4f}".format(len(h_total_loss), np.array(h_total_loss).mean(), np.array(h_total_loss).std()))
+                print("SH triplets: {0}; SH Mean Loss: {1:.4f}; SH Loss STD: {2:.4f}".format(len(sh_total_loss),
+                                                                                             np.array(
+                                                                                                 sh_total_loss).mean(),
+                                                                                             np.array(
+                                                                                                 sh_total_loss).std()))
+                print("H triplets: {0}; H Mean Loss:{1:.4f}; H Loss STD {2:.4f}".format(len(h_total_loss),
+                                                                                        np.array(h_total_loss).mean(),
+                                                                                        np.array(h_total_loss).std()))
 
                 h_mean_loss = np.array(h_total_loss).mean()
                 sh_mean_loss = np.array(sh_total_loss).mean()
@@ -387,10 +402,10 @@ class LandmarkTripletGenerator():
                 sh_triplets = len(sh_total_loss)
                 h_triplets = len(h_total_loss)
 
-                sh_weight = sh_triplets/(sh_triplets + h_triplets)
-                h_weight = h_triplets/(sh_triplets + h_triplets)
+                sh_weight = sh_triplets / (sh_triplets + h_triplets)
+                h_weight = h_triplets / (sh_triplets + h_triplets)
 
-                predicted_loss = h_mean_loss*h_weight + sh_mean_loss*sh_weight
+                predicted_loss = h_mean_loss * h_weight + sh_mean_loss * sh_weight
 
                 print("Predicted training loss: {0:.5f}".format(predicted_loss))
 

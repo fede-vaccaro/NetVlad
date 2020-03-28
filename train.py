@@ -78,6 +78,7 @@ mining_batch_size = conf['mining_batch_size']
 minibatch_size = conf['minibatch_size']
 steps_per_epoch = conf['steps_per_epoch']
 epochs = conf['n_epochs']
+use_crop = conf['use_crop']
 
 # learning rate
 lr_conf = conf['lr']
@@ -184,7 +185,7 @@ if train:
                                                        mining_batch_size=mining_batch_size,
                                                        minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
                                                        threshold=threshold, use_positives_augmentation=False,
-                                                       use_multiprocessing=False, verbose=True)
+                                                       use_multiprocessing=False, verbose=True, use_crop=use_crop)
 
     train_generator = init_generator.generator()
 
