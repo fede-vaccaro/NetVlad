@@ -25,7 +25,7 @@ class NetVladBase(nn.Module):
         self.n_cluster = kwargs['n_clusters']
         self.middle_pca = kwargs['middle_pca']
         self.output_layer = kwargs['output_layer']
-        self.n_splits = kwargs['split_vlad']
+        self.split_vlad = kwargs['split_vlad']
 
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
@@ -129,7 +129,8 @@ class NetVladBase(nn.Module):
     def features(self, x):
         # backbone.summary()
         x = self.base_features(x)
-        x = self.conv_1(x)
+        if self.middle_pca['active']:
+            x = self.conv_1(x)
 
         pool_1 = nn.functional.max_pool2d(x, kernel_size=2, stride=1)
         pool_2 = nn.functional.max_pool2d(x, kernel_size=3, stride=1)
@@ -424,7 +425,7 @@ class NetVladResnet(NetVladBase):
         self.base_model = None
         self.siamese_model = None
         self.images_input = None
-        self.n_filters = 1024
+        self.n_filters = self.split_vlad
 
         self.init_vlad()
         # self.build_base_model(model)
