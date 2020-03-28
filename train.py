@@ -26,7 +26,7 @@ ap.add_argument("-e", "--export", type=str, default="",
                 help="Dir where to export checkpoints")
 ap.add_argument("-m", "--model", type=str,
                 help="path to *specific* model checkpoint to load")
-ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
+ap.add_argument("-c", "--configuration", type=str, default='resnet-conf.yaml',
                 help="Yaml file where the configuration is stored")
 ap.add_argument("-t", "--test", action='store_true',
                 help="If the training be bypassed for testing")
@@ -139,6 +139,8 @@ if train_kmeans:
         print("Model's state_dict:")
         for param_tensor in vladnet.state_dict():
             print(param_tensor, "\t", vladnet.state_dict()[param_tensor].size())
+    if network_conf['middle_pca']['active'] and network_conf['middle_pca']['pretrain']:
+        vladnet.initialize_whitening(image_folder)
 
     vladnet.initialize_netvlad(image_folder)
 
@@ -300,11 +302,11 @@ if train:
             model_name = "model_e{0}_{2}_{1:.4f}.pkl".format(e + start_epoch, val_map, description)
             model_name = os.path.join(EXPORT_DIR, model_name)
             print("Val. mAP improved from {0:.4f}. Saving model to: {1}".format(max_val_map, model_name))
-            torch.save({
-                'epoch': e + start_epoch,
-                'model_state_dict': vladnet.state_dict(),
-                'optimizer_state_dict': adam.state_dict(),
-            }, model_name)
+            # torch.save({
+            #     'epoch': e + start_epoch,
+            #     'model_state_dict': vladnet.state_dict(),
+            #     'optimizer_state_dict': adam.state_dict(),
+            # }, model_name)
             not_improving_counter = 0
         else:
             print("Val mAP ({0:.4f}) did not improve from {1:.4f}".format(val_map, max_val_map))

@@ -126,8 +126,8 @@ class NetVLAD(nn.Module):
 
         # x = make_locals(x)
 
-        if self.normalize_input:
-            x = F.normalize(x, p=2, dim=2)  # across descriptor dim
+        # if self.normalize_input:
+        #     x = F.normalize(x, p=2, dim=2)  # across descriptor dim
 
         # soft-assignment
         soft_assign = torch.matmul(x, self.assignment_weights) + self.assignment_bias

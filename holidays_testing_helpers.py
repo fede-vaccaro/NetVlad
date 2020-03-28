@@ -252,7 +252,7 @@ class HolidaysTester:
                 all_feats += model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step)
 
         all_feats = normalize(all_feats)
-        use_pca = True
+        use_pca = False
         if use_pca:
             n_components = 2048
 

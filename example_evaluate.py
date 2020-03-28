@@ -46,7 +46,7 @@ print('>> {}: Loading features...'.format(test_dataset))
 # Q = features['Q']
 # X = features['X']
 
-Q_dataset = h5py.File('Q.h5','r')
+Q_dataset = h5py.File('Q_{}.h5'.format(test_dataset),'r')
 dim = Q_dataset[list(Q_dataset.keys())[0]][:].shape[0]
 
 n_queries = len(Q_dataset.keys())
@@ -54,7 +54,7 @@ Q = np.zeros((n_queries, dim))
 for i in range(n_queries):
     Q[i, :] = Q_dataset[str(i)][:]
 
-X_dataset = h5py.File('X.h5','r')
+X_dataset = h5py.File('X_{}.h5'.format(test_dataset),'r')
 n_queries = len(X_dataset.keys())
 X = np.zeros((n_queries, dim))
 for i in range(n_queries):

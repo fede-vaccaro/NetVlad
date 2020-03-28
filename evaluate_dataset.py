@@ -6,14 +6,14 @@ import h5py
 import numpy as np
 import torch
 import yaml
-from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 from torchvision.datasets import folder
 
-import open_dataset_utils as my_utils
 import netvlad_model as nm
+import open_dataset_utils as my_utils
 import paths
 import utils
+from train_pca import train_pca
 
 
 def main():
@@ -21,7 +21,7 @@ def main():
 
     ap.add_argument("-m", "--model", type=str,
                     help="path to *specific* model checkpoint to load")
-    ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
+    ap.add_argument("-c", "--configuration", type=str, default='resnet-conf.yaml',
                     help="Yaml file where the configuration is stored")
     ap.add_argument("-d", "--device", type=str, default="0",
                     help="CUDA device to be used. For info type '$ nvidia-smi'")
@@ -29,7 +29,10 @@ def main():
                     help="Test Paris6K")
     ap.add_argument("-o", "--oxford", action='store_true',
                     help="Test Oxford5K")
-
+    ap.add_argument("-w", "--whitening", action='store_true',
+                    help="Use PCA/Whitening")
+    ap.add_argument("-mr", "--multiresolution", action='store_true',
+                    help="Use MultiResolution descriptor")
     args = vars(ap.parse_args())
 
     model_name = args['model']
@@ -38,6 +41,8 @@ def main():
 
     test_paris = args['paris']
     test_oxford = args['oxford']
+
+    use_pca = args['whitening']
 
     conf_file = open(config_file, 'r')
     conf = dict(yaml.safe_load(conf_file))
@@ -84,12 +89,14 @@ def main():
         dataset = 'p'
 
     APs = compute_aps(model=vladnet, dataset=dataset, use_power_norm=use_power_norm,
-                      use_multi_resolution=use_multi_resolution, base_resolution=side_res, verbose=True)
+                      use_multi_resolution=use_multi_resolution, base_resolution=side_res, verbose=True,
+                      pca=None if not use_pca else "pca_{}.h5".format(weight_name))
 
     print("mAP is: {}".format(np.array(APs).mean()))
 
 
-def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336, verbose=False):
+def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336,
+                verbose=False, pca=None):
     path_oxford = paths.path_oxford
     path_paris = paths.path_paris
     if dataset == 'o':
@@ -125,16 +132,18 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
                 image_folder,
                 batch_size=batch_size,
                 num_workers=8,
-                shuffle=False
+                shuffle=False,
             )
             print("Computing descriptors")
             all_feats += model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
     all_feats = normalize(all_feats)
-    use_pca = True
-    if use_pca:
-        n_components = 2048
+    if pca is not None:
+        if not os.path.isfile(pca):
+            print("PCA {} not found. Starting training.".format(pca))
+            train_pca(model, pca)
 
-        pca_dataset = h5py.File("pca_e300.h5".format(n_components), 'r')
+        print("Using PCA.")
+        pca_dataset = h5py.File(pca, 'r')
         mean = pca_dataset['mean'][:]
         components = pca_dataset['components'][:]
         explained_variance = pca_dataset['explained_variance'][:]
@@ -148,8 +157,8 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
         all_feats = np.multiply(all_feats, all_feats_sign)
     all_feats = normalize(all_feats)
 
-    #nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
-    #distances, indices = nbrs.kneighbors(all_feats)
+    # nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
+    # distances, indices = nbrs.kneighbors(all_feats)
 
     distances, indices = my_utils.torch_nn(all_feats, verbose=False)
 

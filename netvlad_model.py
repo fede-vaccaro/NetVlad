@@ -45,6 +45,7 @@ class NetVladBase(nn.Module):
         train_transform = torchvision.transforms.Compose([
             torchvision.transforms.Resize(size=(504, 504)),
             torchvision.transforms.RandomCrop(size=(336, 336)),
+            torchvision.transforms.ToTensor(),
             normalize
         ])
         full_transform = torchvision.transforms.Compose([
@@ -179,13 +180,17 @@ class NetVladBase(nn.Module):
 
         return d_a, d_p, d_n
 
-    def set_mid_pca_weights(self, pca):
+    def set_whitening_weights(self, pca):
         if self.middle_pca['active']:
             mean_ = pca.mean_
             components_ = pca.components_
 
             mean_ = -np.dot(mean_, components_.T)
-            self.pca.set_weights([components_.T, mean_])
+            components_ = components_.reshape(2048, 2048, 1, 1)
+
+            self.conv_1.weight = torch.nn.Parameter(torch.Tensor(components_), requires_grad=True)
+            self.conv_1.bias = torch.nn.Parameter(torch.Tensor(mean_), requires_grad=True)
+            self.conv_1.cuda()
         else:
             print("WARNING mid pca is not active")
 
@@ -218,6 +223,56 @@ class NetVladBase(nn.Module):
 
     # def get_netvlad_extractor(self):
     #     return self.netvlad_base
+
+    def initialize_whitening(self, image_folder):
+        print("Predicting local features for mid whitening.")
+        # all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30,
+        #                                                                           verbose=1)
+
+        n_batches = 30
+        train_loader = torch.utils.data.DataLoader(
+            image_folder,
+            batch_size=32,
+            num_workers=8,
+            shuffle=True,
+        )
+
+        descs_list = []
+        i = 0
+        with torch.no_grad():
+            self.eval()
+            for x, _ in train_loader:
+                desc = self.base_features(x.cuda())
+                # N, dim, h, w = desc.shape
+                # desc = desc.view(N, dim, h*w).permute(0, 2, 1).reshape(N, -1, 512)
+                desc = desc.cpu().numpy().astype('float32').reshape(-1, 2048)
+                descs_list.append(desc)
+                print("\r>> Extracted batch {}/{} - NetVLAD initialization -".format(i + 1, n_batches), end='')
+                i += 1
+                if i == n_batches:
+                    break
+            print("")
+
+        # locals = np.vstack((m[np.random.randint(len(m), size=150)] for m in descs_list)).astype('float32')
+        descs_list = np.array(descs_list)
+        desc_dim = descs_list.shape[-1]
+        locals = descs_list.reshape(-1, desc_dim)
+        n_locals, dim = locals.shape
+        # locals = locals[np.random.randint(n_locals, size=n_locals//3)]
+        print("{} Local activations of dim {}".format(n_locals, dim))
+
+        np.random.shuffle(locals)
+
+        print("Training Scikit-Learn PCA")
+        pca = PCA(2048)
+        pca.fit(locals)
+
+        self.set_whitening_weights(pca)
+        print("Whitening layer initialized")
+
+        del descs_list
+        gc.collect()
+
 
     def initialize_netvlad(self, image_folder):
         print("Predicting local features for k-means.")
@@ -263,12 +318,12 @@ class NetVladBase(nn.Module):
             print("Training PCA")
             pca = PCA(self.middle_pca['dim'])
             locals = pca.fit_transform(locals)
-            self.set_mid_pca_weights(pca)
+            self.set_whitening_weights(pca)
 
         print("Locals extracted: {}".format(locals.shape))
 
         n_clust = self.n_cluster
-        locals = normalize(locals, axis=1)
+        #locals = normalize(locals, axis=1)
 
         print("Fitting k-means")
         kmeans = MiniBatchKMeans(n_clusters=n_clust, random_state=424242).fit(locals)
@@ -369,7 +424,7 @@ class NetVladResnet(NetVladBase):
         self.base_model = None
         self.siamese_model = None
         self.images_input = None
-        self.n_filters = 512
+        self.n_filters = 1024
 
         self.init_vlad()
         # self.build_base_model(model)

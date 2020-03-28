@@ -76,7 +76,7 @@ else:
     print("Network name not valid.")
 
 # weight_name = "model_e300_resnet-101-torch-caffe-lrscheduling_0.9296_checkpoint.pkl"
-weight_name = "vladnet.pkl"
+weight_name = "model_e150_resnet-101-torch-caffe-relu-conv1_0.9382_checkpoint.pkl"
 print("Loading weights: " + weight_name)
 checkpoint = torch.load(weight_name)
 vladnet.load_state_dict(checkpoint['model_state_dict'])
@@ -124,7 +124,7 @@ def save_dict_to_h5(name, dict):
     dataset.close()
 
 
-pca_dataset = h5py.File("pca.h5", 'r')
+pca_dataset = h5py.File("pca_model_e150_resnet-101-torch-caffe-relu-conv1_0.9382_checkpoint.pkl.h5", 'r')
 mean = pca_dataset['mean'][:]
 components = pca_dataset['components'][:]
 explained_variance = pca_dataset['explained_variance'][:]
@@ -218,7 +218,7 @@ for i in np.arange(cfg['nq']):
     Q[str(i)] = extract_feat(vladnet, qim, multiresolution=True, pca=pca, query=True)
 
     print('>> {}: Processing query image {}'.format(test_dataset, i + 1))
-save_dict_to_h5('Q.h5', Q)
+save_dict_to_h5('Q_{}.h5'.format(test_dataset), Q)
 
 X = {}
 
@@ -228,4 +228,4 @@ for i in np.arange(cfg['n']):
 
     print('>> {}: Processing database image {}'.format(test_dataset, i + 1))
 
-save_dict_to_h5('X.h5', X)
+save_dict_to_h5('X_{}.h5'.format(test_dataset), X)

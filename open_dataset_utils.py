@@ -209,7 +209,7 @@ class LandmarkTripletGenerator():
         self.print_statistics = False
         classes = os.listdir(train_dir)
 
-        n_classes = mining_batch_size // 10
+        n_classes = mining_batch_size // 5
         self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
                              transform=model.full_transform)
         if use_multiprocessing:
