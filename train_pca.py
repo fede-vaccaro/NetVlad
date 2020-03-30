@@ -15,7 +15,7 @@ def main():
 
     ap.add_argument("-m", "--model", type=str,
                     help="path to *specific* model checkpoint to load")
-    ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
+    ap.add_argument("-c", "--configuration", type=str, default='resnet-conf.yaml',
                     help="Yaml file where the configuration is stored")
     ap.add_argument("-d", "--device", type=str, default="0",
                     help="CUDA device to be used. For info type '$ nvidia-smi'")
@@ -62,7 +62,7 @@ def main():
     vladnet.load_state_dict(checkpoint['model_state_dict'])
     vladnet.cuda()
 
-    train_pca(vladnet, weight_name)
+    train_pca(vladnet, "pca_{}.h5".format(weight_name))
 
 
 def train_pca(vladnet, out_name):
@@ -73,7 +73,7 @@ def train_pca(vladnet, out_name):
         num_workers=8,
         shuffle=True,
     )
-    all_feats = vladnet.predict_generator_with_netlvad(generator=gen, n_steps=3072)
+    all_feats = vladnet.predict_generator_with_netlvad(generator=gen, n_steps=4096)
     print("All descs shape: ", all_feats.shape)
     print("Sampling local features")
     print("Computing PCA")

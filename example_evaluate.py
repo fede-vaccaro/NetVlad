@@ -29,7 +29,7 @@ download_features(data_root)
 
 # Set test dataset: roxford5k | rparis6k
 #test_dataset = 'roxford5k'
-test_dataset = 'rparis6k'
+test_dataset = 'roxford5k'
 
 #---------------------------------------------------------------------
 # Evaluate

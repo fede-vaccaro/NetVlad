@@ -32,7 +32,7 @@ class NetVladBase(nn.Module):
 
         # self.regularizer = tf.keras.regularizers.l2(0.001)
         if self.middle_pca['active']:
-            self.conv_1 = torch.nn.Conv2d(2048, 2048, kernel_size=1, stride=1)
+            self.conv_1 = torch.nn.Conv2d(2048, self.middle_pca['dim'], kernel_size=1, stride=1)
             self.conv_1.cuda()
 
         self.n_filters = None
@@ -185,9 +185,9 @@ class NetVladBase(nn.Module):
         if self.middle_pca['active']:
             mean_ = pca.mean_
             components_ = pca.components_
-
+            print(components_.shape)
             mean_ = -np.dot(mean_, components_.T)
-            components_ = components_.reshape(2048, 2048, 1, 1)
+            components_ = components_.reshape(self.middle_pca['dim'], 2048, 1, 1)
 
             self.conv_1.weight = torch.nn.Parameter(torch.Tensor(components_), requires_grad=True)
             self.conv_1.bias = torch.nn.Parameter(torch.Tensor(mean_), requires_grad=True)
@@ -264,8 +264,8 @@ class NetVladBase(nn.Module):
 
         np.random.shuffle(locals)
 
-        print("Training Scikit-Learn PCA")
-        pca = PCA(2048)
+        print("Training Scikit-Learn PCA @ dim: ", self.middle_pca['dim'])
+        pca = PCA(self.middle_pca['dim'])
         pca.fit(locals)
 
         self.set_whitening_weights(pca)
@@ -407,7 +407,7 @@ class NetVladResnet(NetVladBase):
         model = getattr(torchvision.models, 'resnet101')(pretrained=False)
 
         # sobstitute relu with Identity
-        # model.layer4[2].relu = nn.Identity()
+        #model.layer4[2].relu = nn.Identity()
 
         # get base_features
         base_features = list(model.children())[:-2]

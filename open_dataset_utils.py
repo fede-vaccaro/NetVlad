@@ -190,8 +190,7 @@ class Loader(threading.Thread):
 
 
 def torch_nn(feats, verbose=True):
-    feats = normalize(feats)
-    feats = torch.Tensor(feats)
+    feats = torch.Tensor(feats).cuda()
     if verbose:
         print("Mining - Computing distances")
     distances = (feats.mm(feats.t())).cpu()
@@ -209,7 +208,7 @@ class LandmarkTripletGenerator():
         self.print_statistics = False
         classes = os.listdir(train_dir)
         self.use_crop = use_crop
-        n_classes = mining_batch_size // 5
+        n_classes = mining_batch_size // 10
         self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
                              transform=model.full_transform)
         if use_multiprocessing:

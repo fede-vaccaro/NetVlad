@@ -146,7 +146,7 @@ if train_kmeans:
     vladnet.initialize_netvlad(image_folder)
 
     if network_conf['post_pca']['active']:
-        vladnet.pretrain_pca(image_folder)
+        vladnet.initialize_whitening(image_folder)
 
 if train:
     vladnet.cuda()
@@ -218,7 +218,7 @@ if train:
     starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
                                             rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
-                                            verbose=False)
+                                            verbose=True)
 
     print("Starting mAP: ", starting_map)
 
@@ -325,7 +325,7 @@ if train:
 
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",
-              np.array(compute_aps(dataset='o', model=vladnet)).mean())
+              np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
         if compute_validation:
             print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
