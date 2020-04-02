@@ -138,7 +138,7 @@ def torch_nn(feats, verbose=True):
 
 class LandmarkTripletGenerator():
     def __init__(self, train_dir, model, mining_batch_size=[2048], minibatch_size=24, images_per_class=[10],
-                 semi_hard_prob=0.5, threshold=20, verbose=False, use_crop=False, print_statistics=True):
+                 semi_hard_prob=0.5, threshold=20, verbose=False, use_crop=False, print_statistics=False):
 
         self.print_statistics = print_statistics
         classes = os.listdir(train_dir)
@@ -160,7 +160,7 @@ class LandmarkTripletGenerator():
         self.semi_hard_prob = semi_hard_prob
 
         target_loss = 0.1
-        delta = 0.02
+        delta = 0.025
 
         self.mining_iterations = 0
 
@@ -266,7 +266,7 @@ class LandmarkTripletGenerator():
                         j_pos = j
 
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
-                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[j_neg]]
+                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[0]]
 
                         d_a_p_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_pos]), 0.0))
                         d_a_n_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_neg]), 0.0))

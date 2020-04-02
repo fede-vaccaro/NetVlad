@@ -330,8 +330,8 @@ if train:
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",
               np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
-        print("Paris 6K mAP: ",
-              np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
+        # print("Paris 6K mAP: ",
+        #       np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
 
         if compute_validation:
             print("Validation loss: {}\n".format(val_loss))
