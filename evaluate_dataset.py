@@ -43,13 +43,13 @@ def main():
     test_oxford = args['oxford']
 
     use_pca = args['whitening']
+    use_multi_resolution = args['multiresolution']
 
     conf_file = open(config_file, 'r')
     conf = dict(yaml.safe_load(conf_file))
     conf_file.close()
 
     use_power_norm = conf['use_power_norm']
-    use_multi_resolution = conf['use_multi_resolution']
     side_res = conf['input-shape']
 
     nm.NetVladBase.input_shape = (side_res, side_res, 3)

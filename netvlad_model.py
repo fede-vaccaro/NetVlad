@@ -123,7 +123,7 @@ class NetVladBase(nn.Module):
             if verbose:
                 print("\n>> Prediction completed in {}s".format(int(time.time() - t0)))
 
-        descs = np.vstack(tuple(m for m in descs))
+        descs = np.vstack([m for m in descs])
         return descs
 
     def features(self, x):

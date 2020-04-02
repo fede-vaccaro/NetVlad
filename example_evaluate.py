@@ -6,7 +6,7 @@
 # Radenovic F., Iscen A., Tolias G., Avrithis Y., Chum O., Revisiting Oxford and Paris: Large-Scale Image Retrieval Benchmarking, CVPR 2018
 #
 # Authors: Radenovic F., Iscen A., Tolias G., Avrithis Y., Chum O., 2018
-
+import argparse
 import os
 import numpy as np
 
@@ -29,7 +29,21 @@ download_features(data_root)
 
 # Set test dataset: roxford5k | rparis6k
 #test_dataset = 'roxford5k'
-test_dataset = 'roxford5k'
+
+
+ap = argparse.ArgumentParser()
+
+
+ap.add_argument("-p", "--paris", action='store_true',
+                help="Test Paris6K")
+ap.add_argument("-o", "--oxford", action='store_true',
+                help="Test Oxford5K")
+
+args = vars(ap.parse_args())
+
+oxford_dataset = args['oxford']
+
+test_dataset = 'roxford5k' if oxford_dataset else 'rparis6k'
 
 #---------------------------------------------------------------------
 # Evaluate

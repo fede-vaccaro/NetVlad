@@ -119,21 +119,6 @@ def extract_feat(model, img, multiresolution=False, pca=None, query=False):
 
 
 if __name__ == '__main__':
-    # ---------------------------------------------------------------------
-    # Set data folder and testing parameters
-    # ---------------------------------------------------------------------
-    # Set data folder, change if you have downloaded the data somewhere else
-    data_root = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'data')
-    # Check, and, if necessary, download test data (Oxford and Pairs) and revisited annotation
-    download_datasets(data_root)
-
-    # Set test dataset: roxford5k | rparis6k
-    test_dataset = 'roxford5k'
-
-    print('>> {}: Processing test dataset...'.format(test_dataset))
-    # config file for the dataset
-    # separates query image list from database image list, if revisited protocol used
-    cfg = configdataset(test_dataset, os.path.join(data_root, 'datasets'))
 
     ap = argparse.ArgumentParser()
 
@@ -153,6 +138,8 @@ if __name__ == '__main__':
     model_name = args['model']
     config_file = args['configuration']
     cuda_device = args['device']
+    paris_dataset = args['paris']
+    oxford_dataset = args['oxford']
 
     conf_file = open(config_file, 'r')
     conf = dict(yaml.safe_load(conf_file))
@@ -166,6 +153,23 @@ if __name__ == '__main__':
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+
+    # ---------------------------------------------------------------------
+    # Set data folder and testing parameters
+    # ---------------------------------------------------------------------
+    # Set data folder, change if you have downloaded the data somewhere else
+    data_root = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'data')
+    # Check, and, if necessary, download test data (Oxford and Pairs) and revisited annotation
+    download_datasets(data_root)
+
+    # Set test dataset: roxford5k | rparis6k
+    test_dataset = 'roxford5k' if oxford_dataset else 'rparis6k'
+
+    print('>> {}: Processing test dataset...'.format(test_dataset))
+    # config file for the dataset
+    # separates query image list from database image list, if revisited protocol used
+    cfg = configdataset(test_dataset, os.path.join(data_root, 'datasets'))
+
 
     print("Loading image dict")
 
@@ -182,7 +186,7 @@ if __name__ == '__main__':
         print("Network name not valid.")
 
     # weight_name = "model_e300_resnet-101-torch-caffe-lrscheduling_0.9296_checkpoint.pkl"
-    weight_name = "model_e190_resnet-101-relu-conv_0.9431_checkpoint.pkl"
+    weight_name = model_name
     print("Loading weights: " + weight_name)
     checkpoint = torch.load(weight_name)
     vladnet.load_state_dict(checkpoint['model_state_dict'])
@@ -197,7 +201,7 @@ if __name__ == '__main__':
     # Check, and, if necessary, download test data (Oxford and Pairs) and revisited annotation
     download_datasets(data_root)
 
-    pca_dataset = h5py.File("pca_model_e190_resnet-101-relu-conv_0.9431_checkpoint.pkl.h5", 'r')
+    pca_dataset = h5py.File("pca_{}.h5".format(weight_name.split("/")[-1]), 'r')
     mean = pca_dataset['mean'][:]
     components = pca_dataset['components'][:]
     explained_variance = pca_dataset['explained_variance'][:]

@@ -84,9 +84,10 @@ def main():
     elif test_paris:
         dataset = 'p'
 
+
     APs = compute_aps(model=vladnet, dataset=dataset, use_power_norm=use_power_norm,
                       use_multi_resolution=use_multi_resolution, base_resolution=side_res, verbose=True,
-                      pca=None if not use_pca else "pca_{}.h5".format(weight_name))
+                      pca=None if not use_pca else "pca_{}.h5".format(weight_name.split("/")[-1]))
 
     print("mAP is: {}".format(np.array(APs).mean()))
 
@@ -137,16 +138,18 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
 
     qfeatures = []
 
-    if not os.path.isfile(pca):
-        print("PCA {} not found. Starting training.".format(pca))
-        train_pca(model, pca)
+    if pca is not None:
+        if not os.path.isfile(pca):
+            print("PCA {} not found. Starting training.".format(pca))
+            train_pca(model, pca)
 
-    print("Using PCA.")
-    pca_dataset = h5py.File(pca, 'r')
-    mean = pca_dataset['mean'][:]
-    components = pca_dataset['components'][:]
-    explained_variance = pca_dataset['explained_variance'][:]
-    pca_dataset.close()
+    if pca is not None:
+        print("Using PCA.")
+        pca_dataset = h5py.File(pca, 'r')
+        mean = pca_dataset['mean'][:]
+        components = pca_dataset['components'][:]
+        explained_variance = pca_dataset['explained_variance'][:]
+        pca_dataset.close()
 
     pca = {'components': components, 'mean': mean, 'explained_variance': explained_variance}
 
