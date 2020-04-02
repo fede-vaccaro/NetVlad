@@ -5,6 +5,7 @@ import queue
 import random
 import threading
 import time
+from itertools import cycle
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -122,72 +123,6 @@ class ImagesFromListDataset(data.Dataset):
             return im
 
 
-class Loader(threading.Thread):
-    def __init__(self, batch_size, classes, n_classes, train_dir, transform):
-        self.batch_size = batch_size
-        self.classes = classes
-        self.n_classes = n_classes
-        self.train_dir = train_dir
-        self.transform = transform
-        self.keep_loading = True
-
-        self.q = queue.Queue(2)
-        super(Loader, self).__init__()
-
-    def _load_batch(self, batch_size, classes, n_classes, train_dir):
-        if not self.q.full():
-            shuffled_classes = list(classes)
-            random.shuffle(shuffled_classes)
-            picked_classes = shuffled_classes[:n_classes]
-            # load each image in those classes
-            imgs = []
-            for i, c in enumerate(picked_classes):
-                images_in_c = os.listdir(train_dir + "/" + c)
-                num_samples_in_c = len(images_in_c)
-                random.shuffle(images_in_c)
-                images_in_c = images_in_c[:min(batch_size // n_classes, num_samples_in_c)]
-                for image_in_c in images_in_c:
-                    class_index = classes.index(c)
-                    imgs += [(image_in_c, class_index, c)]
-            # randomize the image list
-            random.shuffle(imgs)
-            # pick the first batch_size (if enough)
-            batch_size_ = min(batch_size, len(imgs))
-            imgs = imgs[:batch_size_]
-            images_list = []
-            label_list = []
-            # load the images
-            # print("Opening the images (producer thread)")
-            for im, label, dir in imgs:
-                # image = load_img(path=train_dir + "/" + dir + "/" + im, transform=self.transform)
-                # image = image.unsqueeze(0)
-                images_list.append(train_dir + "/" + dir + "/" + im)
-                label_list.append(label)
-
-            # print("Images loaded")
-            if self.keep_loading:
-                # images_list = torch.cat(images_list, dim=0)
-                self.q.put((images_list, label_list))
-
-            # self.q.task_done()
-            # print("Object enqueued: ", (self.q.qsize()))
-            gc.collect()
-            # return images_list, label_list
-
-    # self.images_array = np.array(images_array)
-    # self.label_array = np.array(label_array)
-
-    def run(self) -> None:
-        while self.keep_loading:
-            self.load_batch()
-
-    def load_batch(self):
-        self._load_batch(self.batch_size, self.classes, self.n_classes, self.train_dir)
-
-    def stop_loading(self):
-        self.keep_loading = False
-        self.q.queue.clear()
-
 
 def torch_nn(feats, verbose=True):
     feats = torch.Tensor(feats).cuda()
@@ -202,20 +137,21 @@ def torch_nn(feats, verbose=True):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, use_multiprocessing=True,
-                 semi_hard_prob=0.5, threshold=20, verbose=False, use_positives_augmentation=False, use_crop=False):
+    def __init__(self, train_dir, model, mining_batch_size=[2048], minibatch_size=24, images_per_class=[10],
+                 semi_hard_prob=0.5, threshold=20, verbose=False, use_crop=False, print_statistics=True):
 
-        self.print_statistics = False
+        self.print_statistics = print_statistics
         classes = os.listdir(train_dir)
+        self.classes = classes
+        self.train_dir = train_dir
+        self.mining_batch_size = cycle(mining_batch_size)
+        self.images_per_class = cycle(images_per_class)
         self.use_crop = use_crop
-        n_classes = mining_batch_size // 10
-        self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
-                             transform=model.full_transform)
-        if use_multiprocessing:
-            self.loader.start()
+
+        # self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
+        #                      transform=model.full_transform)
 
         self.transform = model.full_transform
-        self.use_multiprocessing = use_multiprocessing
         self.minibatch_size = minibatch_size
         self.model = model
         self.verbose = verbose
@@ -226,20 +162,56 @@ class LandmarkTripletGenerator():
         target_loss = 0.1
         delta = 0.02
 
+        self.mining_iterations = 0
+
         self.loss_min = np.max(target_loss - delta, 0)
         self.loss_max = target_loss + delta
 
-        self.use_positives_augmentation = use_positives_augmentation
+    def load_images_list(self, batch_size, classes, n_classes, train_dir):
+        shuffled_classes = list(classes)
+        random.shuffle(shuffled_classes)
+        picked_classes = shuffled_classes[:n_classes]
+        # load each image in those classes
+        imgs = []
+        for i, c in enumerate(picked_classes):
+            images_in_c = os.listdir(train_dir + "/" + c)
+            num_samples_in_c = len(images_in_c)
+            random.shuffle(images_in_c)
+            images_in_c = images_in_c[:min(batch_size // n_classes, num_samples_in_c)]
+            for image_in_c in images_in_c:
+                class_index = classes.index(c)
+                imgs += [(image_in_c, class_index, c)]
+        # randomize the image list
+        random.shuffle(imgs)
+        # pick the first batch_size (if enough)
+        batch_size_ = min(batch_size, len(imgs))
+        imgs = imgs[:batch_size_]
+        images_list = []
+        label_list = []
+        # load the images
+        # print("Opening the images (producer thread)")
+        for im, label, dir in imgs:
+            # image = load_img(path=train_dir + "/" + dir + "/" + im, transform=self.transform)
+            # image = image.unsqueeze(0)
+            images_list.append(train_dir + "/" + dir + "/" + im)
+            label_list.append(label)
+
+        return images_list, label_list
 
     def generator(self):
         while True:
-            if self.verbose:
-                print("Mining - New iteration")
 
-            if not self.use_multiprocessing:
-                self.loader.load_batch()
+            current_mining_batch_size = next(self.mining_batch_size)
+            current_images_per_class = next(self.images_per_class)
 
-            image_list, label_list = self.loader.q.get()
+            self.mining_iterations += 1
+            print("\nMining - iteration {}; Mining batch size: {}; Images per class: {}".format(self.mining_iterations,
+                                                                                               current_mining_batch_size,
+                                                                                               current_images_per_class))
+
+            image_list, label_list = self.load_images_list(batch_size=current_mining_batch_size, classes=self.classes,
+                                                           n_classes=current_mining_batch_size // current_images_per_class,
+                                                           train_dir=self.train_dir)
             if self.verbose:
                 print("Mining - Computing descriptors")
 
@@ -267,6 +239,9 @@ class LandmarkTripletGenerator():
 
             sh_total_loss = []
             h_total_loss = []
+
+            p_indices = []
+            n_indices = []
 
             # find triplets:
             if self.verbose:
@@ -296,17 +271,18 @@ class LandmarkTripletGenerator():
                         d_a_p_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_pos]), 0.0))
                         d_a_n_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_neg]), 0.0))
 
-                        d_a_p = np.sqrt(d_a_p_2)
-                        d_a_n = np.sqrt(d_a_n_2)
+                        d_a_p = d_a_p_2
+                        d_a_n = d_a_n_2
 
-                        # cosine distance
-                        loss = 0.1 + d_a_p - d_a_n
+                        loss = 0.1 + d_a_p_2 - d_a_n_2
 
                         # print(loss)
                         if self.loss_min < loss < self.loss_max:
                             # print(loss)
                             triplets.append(triplet)
                             losses.append(loss)
+                            p_indices += [j_pos]
+                            n_indices += [j_neg]
 
                             if j_pos - j_neg > 0:  # hard triplet
                                 h_total_loss += [loss]
@@ -366,12 +342,13 @@ class LandmarkTripletGenerator():
             positives = [t[1] for t in im_triplets]
             negatives = [t[2] for t in im_triplets]
 
+            transform = self.model.train_transform if self.use_crop else self.transform
             img_a = ImagesFromListDataset(image_list=anchors,
-                                          transform=self.model.train_transform if self.use_crop else self.transform)
+                                          transform=transform)
             img_p = ImagesFromListDataset(image_list=positives,
-                                          transform=self.model.train_transform if self.use_crop else self.transform)
+                                          transform=transform)
             img_n = ImagesFromListDataset(image_list=negatives,
-                                          transform=self.model.train_transform if self.use_crop else self.transform)
+                                          transform=transform)
 
             data_loader_a = data.DataLoader(dataset=img_a, batch_size=self.minibatch_size, num_workers=4, shuffle=False,
                                             pin_memory=True)
@@ -394,6 +371,8 @@ class LandmarkTripletGenerator():
                 print("H triplets: {0}; H Mean Loss:{1:.4f}; H Loss STD {2:.4f}".format(len(h_total_loss),
                                                                                         np.array(h_total_loss).mean(),
                                                                                         np.array(h_total_loss).std()))
+                print("Mean positive index: {}".format(np.array(p_indices).mean()))
+                print("Mean negative index: {}".format(np.array(n_indices).mean()))
 
                 h_mean_loss = np.array(h_total_loss).mean()
                 sh_mean_loss = np.array(sh_total_loss).mean()
@@ -501,7 +480,7 @@ def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
 
         im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
         random.shuffle(im_triplets)
-        DIM = len(images_array)
+        DIM = min(len(images_array), 256)
 
         # del images_array, indices, distances, feats
         # gc.collect()

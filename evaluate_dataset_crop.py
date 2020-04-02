@@ -150,8 +150,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
         components = pca_dataset['components'][:]
         explained_variance = pca_dataset['explained_variance'][:]
         pca_dataset.close()
-
-    pca = {'components': components, 'mean': mean, 'explained_variance': explained_variance}
+        pca = {'components': components, 'mean': mean, 'explained_variance': explained_variance}
 
     # extract queries images
     for i, query_bbox in enumerate(zip(query_files, bboxes)):

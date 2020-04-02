@@ -48,6 +48,7 @@ cuda_device = args['device']
 config_file = args['configuration']
 compute_validation = args['validation']
 verbose = args['verbose']
+
 EXPORT_DIR = args['export']
 
 conf_file = open(config_file, 'r')
@@ -71,10 +72,14 @@ try:
     semi_hard_prob = conf['semi-hard-prob']
 except:
     semi_hard_prob = 0.5
+mining_batch_size = conf['mining_batch_size']
+images_per_class = conf['images_per_class']
+
+mining_batch_size = [int(mbs) for mbs in str(mining_batch_size).split(",")]
+images_per_class = [int(ipc) for ipc in str(images_per_class).split(",")]
 
 # training
 train_description = conf['description']
-mining_batch_size = conf['mining_batch_size']
 minibatch_size = conf['minibatch_size']
 steps_per_epoch = conf['steps_per_epoch']
 epochs = conf['n_epochs']
@@ -182,10 +187,9 @@ if train:
     # load generators
     init_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                        model=vladnet,
-                                                       mining_batch_size=mining_batch_size,
+                                                       mining_batch_size=mining_batch_size, images_per_class=images_per_class,
                                                        minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                       threshold=threshold, use_positives_augmentation=False,
-                                                       use_multiprocessing=False, verbose=True, use_crop=use_crop)
+                                                       threshold=threshold, verbose=True, use_crop=use_crop)
 
     train_generator = init_generator.generator()
 
@@ -326,6 +330,9 @@ if train:
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",
               np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
+        print("Paris 6K mAP: ",
+              np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
+
         if compute_validation:
             print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
@@ -338,7 +345,7 @@ if train:
     model_name = "model_e{}_{}_.pkl".format(epochs + start_epoch, description)
     model_name = os.path.join(EXPORT_DIR, model_name)
     torch.save({
-        'epoch': e + start_epoch,
+        'epoch': epochs + start_epoch,
         'model_state_dict': vladnet.state_dict(),
         'optimizer_state_dict': adam.state_dict(),
     }, model_name)
