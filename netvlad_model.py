@@ -8,6 +8,7 @@ import torchvision
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
+from PIL import Image
 
 from netvlad import NetVLAD, make_locals
 
@@ -39,11 +40,11 @@ class NetVladBase(nn.Module):
 
         normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(size=(336, 336)),
+            torchvision.transforms.Resize(size=(336, 336), interpolation=Image.ANTIALIAS),
             torchvision.transforms.ToTensor(),
         ])
         train_transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(size=(504, 504)),
+            torchvision.transforms.Resize(size=(504, 504), interpolation=Image.ANTIALIAS),
             torchvision.transforms.RandomCrop(size=(336, 336)),
             torchvision.transforms.ToTensor(),
             normalize
@@ -64,7 +65,7 @@ class NetVladBase(nn.Module):
             shape_ = shape
         normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(size=shape_),
+            torchvision.transforms.Resize(size=shape_, interpolation=Image.ANTIALIAS),
             torchvision.transforms.ToTensor(),
         ])
         full_transform = torchvision.transforms.Compose([
