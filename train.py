@@ -2,6 +2,7 @@
 import argparse
 import os
 import time
+from itertools import cycle
 from math import ceil
 
 import matplotlib.pyplot as plt
@@ -185,13 +186,13 @@ if train:
                                / minibatch_size)
 
     # load generators
-    init_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
-                                                       model=vladnet,
-                                                       mining_batch_size=mining_batch_size, images_per_class=images_per_class,
-                                                       minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                       threshold=threshold, verbose=True, use_crop=use_crop)
+    landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+                                                                    model=vladnet,
+                                                                    mining_batch_size=mining_batch_size[0], images_per_class=images_per_class[0],
+                                                                    minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
+                                                                    threshold=threshold, verbose=True, use_crop=use_crop)
 
-    train_generator = init_generator.generator()
+    train_generator = landmarks_triplet_generator.generator()
 
     # TODO fix
     if compute_validation:
@@ -226,12 +227,16 @@ if train:
 
     print("Starting mAP: ", starting_map)
 
+
     for e in range(epochs):
         t0 = time.time()
 
         losses_e = []
 
         pbar = tqdm(range(steps_per_epoch))
+
+        landmarks_triplet_generator.images_per_class = images_per_class[(e + start_epoch) % len(images_per_class)]
+        landmarks_triplet_generator.mining_batch_size = mining_batch_size[(e + start_epoch) % len(mining_batch_size)]
 
         for s in pbar:
             a, p, n = next(train_generator)
@@ -340,7 +345,7 @@ if train:
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 
-    init_generator.loader.stop_loading()
+    landmarks_triplet_generator.loader.stop_loading()
 
     model_name = "model_e{}_{}_.pkl".format(epochs + start_epoch, description)
     model_name = os.path.join(EXPORT_DIR, model_name)

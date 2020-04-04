@@ -137,15 +137,15 @@ def torch_nn(feats, verbose=True):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, model, mining_batch_size=[2048], minibatch_size=24, images_per_class=[10],
+    def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, images_per_class=10,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_crop=False, print_statistics=False):
 
         self.print_statistics = print_statistics
         classes = os.listdir(train_dir)
         self.classes = classes
         self.train_dir = train_dir
-        self.mining_batch_size = cycle(mining_batch_size)
-        self.images_per_class = cycle(images_per_class)
+        self.mining_batch_size = mining_batch_size
+        self.images_per_class = images_per_class
         self.use_crop = use_crop
 
         # self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
@@ -160,7 +160,7 @@ class LandmarkTripletGenerator():
         self.semi_hard_prob = semi_hard_prob
 
         target_loss = 0.1
-        delta = 0.025
+        delta = 0.04
 
         self.mining_iterations = 0
 
@@ -201,8 +201,8 @@ class LandmarkTripletGenerator():
     def generator(self):
         while True:
 
-            current_mining_batch_size = next(self.mining_batch_size)
-            current_images_per_class = next(self.images_per_class)
+            current_mining_batch_size = self.mining_batch_size
+            current_images_per_class = self.images_per_class
 
             self.mining_iterations += 1
             print("\nMining - iteration {}; Mining batch size: {}; Images per class: {}".format(self.mining_iterations,
@@ -335,8 +335,8 @@ class LandmarkTripletGenerator():
             # select just K different classes
             # K_classes = 256
             n_triplets = len(im_triplets)
-            # K_classes = min(K_classes, len(class_set))
-            # im_triplets = im_triplets[:K_classes]
+            K_classes = min(n_triplets, 256)
+            im_triplets = im_triplets[:K_classes]
 
             anchors = [t[0] for t in im_triplets]
             positives = [t[1] for t in im_triplets]
@@ -358,7 +358,7 @@ class LandmarkTripletGenerator():
                                             pin_memory=True)
 
             pages = math.ceil(n_triplets / self.minibatch_size)
-            print("Mining - Iterations available: {2}; {0} triplets, in batch of {1}".format(n_triplets,
+            print("Mining - Iterations available: {2}; {0} triplets, in batch of {1}".format(K_classes,
                                                                                              self.minibatch_size,
                                                                                              pages))
             if self.print_statistics:
