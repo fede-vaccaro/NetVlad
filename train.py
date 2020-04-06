@@ -20,6 +20,7 @@ import paths
 import utils
 from evaluate_dataset import compute_aps
 from torch_triplet_loss import TripletLoss
+import ap_loss
 
 ap = argparse.ArgumentParser()
 
@@ -180,7 +181,7 @@ if train:
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
 
     # define loss
-    criterion = TripletLoss()
+    criterion = ap_loss.TAPLoss()
 
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
@@ -239,7 +240,8 @@ if train:
         landmarks_triplet_generator.mining_batch_size = mining_batch_size[(e + start_epoch) % len(mining_batch_size)]
 
         for s in pbar:
-            a, p, n = next(train_generator)
+            images_list, label_list = next(train_generator)
+
             vladnet.eval()
             # clear gradient
             adam.zero_grad()
