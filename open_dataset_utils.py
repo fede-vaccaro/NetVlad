@@ -20,6 +20,9 @@ from torch.utils import data
 import netvlad_model as nm
 import paths
 
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 
 def show_triplet(triplet):
     fig = plt.figure(figsize=(10, 10))
