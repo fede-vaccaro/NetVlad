@@ -1,8 +1,8 @@
 # %%
 import argparse
+import math
 import os
 import time
-from itertools import cycle
 from math import ceil
 
 import matplotlib.pyplot as plt
@@ -13,14 +13,13 @@ import yaml
 from torchvision.datasets import folder
 from tqdm import tqdm
 
+import ap_loss
 import holidays_testing_helpers as hth
 import netvlad_model
 import open_dataset_utils as my_utils
 import paths
 import utils
 from evaluate_dataset import compute_aps
-from torch_triplet_loss import TripletLoss
-import ap_loss
 
 ap = argparse.ArgumentParser()
 
@@ -181,7 +180,7 @@ if train:
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
 
     # define loss
-    criterion = ap_loss.TAPLoss()
+    criterion = ap_loss.TAPLoss(simplified=True)
 
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
@@ -189,9 +188,12 @@ if train:
     # load generators
     landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                                     model=vladnet,
-                                                                    mining_batch_size=mining_batch_size[0], images_per_class=images_per_class[0],
-                                                                    minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                                    threshold=threshold, verbose=True, use_crop=use_crop)
+                                                                    mining_batch_size=mining_batch_size[0],
+                                                                    images_per_class=images_per_class[0],
+                                                                    minibatch_size=minibatch_size,
+                                                                    semi_hard_prob=semi_hard_prob,
+                                                                    threshold=threshold, verbose=True,
+                                                                    use_crop=use_crop)
 
     train_generator = landmarks_triplet_generator.generator()
 
@@ -220,7 +222,7 @@ if train:
         starting_val_loss = np.array(val_loss_e).mean()
         print("Starting validation loss: ", starting_val_loss)
 
-    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet)).mean())
+    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
     starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
                                             rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
@@ -228,6 +230,7 @@ if train:
 
     print("Starting mAP: ", starting_map)
 
+    criterion.cuda()
 
     for e in range(epochs):
         t0 = time.time()
@@ -246,13 +249,53 @@ if train:
             # clear gradient
             adam.zero_grad()
 
-            # forward
-            a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
+            img_dataset = my_utils.ImagesFromListDataset(image_list=images_list, label_list=label_list,
+                                                         transform=vladnet.full_transform)
+            b_size = 16
+            data_loader = torch.utils.data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8, shuffle=False,
+                                                pin_memory=True)
 
-            # loss
-            # loss_s = vgg_netvlad.train_on_batch(x, None)
-            loss_s = criterion(a_d, p_d, n_d)
+            n_step = math.ceil(len(img_dataset) / b_size)
+
+            # phase 1, compute descriptors
+            feats = vladnet.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step,
+                                                           verbose=True)
+
+            feats = torch.Tensor(feats).cuda()
+            feats.requires_grad_(True)
+
+            distances = (feats.mm(feats.t()))
+            distances.requires_grad_(True)
+
+            distances, indices = distances.sort(descending=True)
+
+            labels_matrix = np.zeros(indices.shape)
+
+            for i, r in enumerate(indices):
+                anchor_label = label_list[r[0]]
+                for j, c in enumerate(r):
+                    if label_list[c] == anchor_label:
+                        labels_matrix[i, j] = 1
+
+            # phase 2: compute loss and dl/dfeats3
+            print("Computing loss and dl/dfeats3")
+
+            loss_s = criterion.forward(x=distances, label=torch.Tensor(labels_matrix).cuda())
             loss_s.backward()
+
+            # phase 3: accumulate gradients
+            print("Accumulating gradients")
+            img_dataset = my_utils.ImagesFromListDataset(image_list=images_list, label_list=None,
+                                                         transform=vladnet.full_transform)
+            b_size = 1
+            data_loader = torch.utils.data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8, shuffle=False,
+                                                pin_memory=True)
+
+            n_step = math.ceil(len(img_dataset) / b_size)
+            for i, x in tqdm(enumerate(data_loader)):
+                x = x.cuda()
+                y = vladnet.forward(x)
+                y.backward(feats.grad[i].unsqueeze(0))
 
             adam.step()
             if use_warm_up:

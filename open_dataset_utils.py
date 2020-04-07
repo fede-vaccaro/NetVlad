@@ -131,7 +131,7 @@ def torch_nn(feats, verbose=True):
     feats = torch.Tensor(feats).cuda()
     if verbose:
         print("Mining - Computing distances")
-    distances = (feats.mm(feats.t())).cpu()
+    distances = (feats.mm(feats.t()))
     del feats
     if verbose:
         print("Mining - Computing indices")
