@@ -62,7 +62,9 @@ def main():
     vladnet.load_state_dict(checkpoint['model_state_dict'])
     vladnet.cuda()
 
-    train_pca(vladnet, "pca_{}.h5".format(weight_name))
+    print("PCA is going to be saved to: ", "pca_{}.h5".format(weight_name.split('/')[-1]))
+
+    train_pca(vladnet, "pca_{}.h5".format(weight_name.split('/')[-1]))
 
 
 def train_pca(vladnet, out_name):
