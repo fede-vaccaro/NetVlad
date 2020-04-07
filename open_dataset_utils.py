@@ -338,7 +338,7 @@ class LandmarkTripletGenerator():
             # select just K different classes
             # K_classes = 256
             n_triplets = len(im_triplets)
-            K_classes = min(n_triplets, 256)
+            K_classes = min(n_triplets, 240)
             im_triplets = im_triplets[:K_classes]
 
             anchors = [t[0] for t in im_triplets]
@@ -360,7 +360,7 @@ class LandmarkTripletGenerator():
             data_loader_n = data.DataLoader(dataset=img_n, batch_size=self.minibatch_size, num_workers=4, shuffle=False,
                                             pin_memory=True)
 
-            pages = math.ceil(n_triplets / self.minibatch_size)
+            pages = math.ceil(K_classes / self.minibatch_size)
             print("Mining - Iterations available: {2}; {0} triplets, in batch of {1}".format(K_classes,
                                                                                              self.minibatch_size,
                                                                                              pages))
