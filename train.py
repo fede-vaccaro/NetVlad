@@ -267,19 +267,32 @@ if train:
 
             t = 50
 
-            distances, indices = distances.sort(descending=True)
+            # distances, indices = distances.sort(descending=True)
 
-            distances = distances[:,:t]
-            indices = indices[:,:t]
+            # distances = distances[:,:t]
+            # indices = indices[:,:t]
 
             print("Composing indices matrix")
-            labels_matrix = np.zeros(indices.shape)
+            # labels_matrix = np.zeros(indices.shape)
 
-            for i, r in enumerate(indices):
-                anchor_label = label_list[r[0]]
-                for j, c in enumerate(r):
-                    if label_list[c] == anchor_label:
-                        labels_matrix[i, j] = 1
+            labels = []
+
+            for label in label_list:
+                label_i = []
+                for l_ in label_list:
+                    if label == l_:
+                        label_i += [1]
+                    else:
+                        label_i += [0]
+                labels += [label_i]
+
+            labels_matrix = np.array(labels)
+
+            # for i, r in enumerate(indices):
+            #     anchor_label = label_list[r[0]]
+            #     for j, c in enumerate(r):
+            #         if label_list[c] == anchor_label:
+            #             labels_matrix[i, j] = 1
 
             # print("Min distance value: ", np.min(distances.cpu().detach().numpy()))
             # print("Max distance value: ", np.max(distances.cpu().detach().numpy()))
@@ -299,7 +312,7 @@ if train:
                                                 pin_memory=True)
 
             n_step = math.ceil(len(img_dataset) / b_size)
-            for i, x in tqdm(enumerate(data_loader)):
+            for i, x in enumerate(tqdm(data_loader)):
                 x = x.cuda()
                 y = vladnet.forward(x)
                 y.backward(feats.grad[i].unsqueeze(0))
