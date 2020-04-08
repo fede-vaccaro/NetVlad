@@ -299,7 +299,7 @@ if train:
                                                 pin_memory=True)
 
             n_step = math.ceil(len(img_dataset) / b_size)
-            for x in tqdm(data_loader):
+            for i, x in tqdm(enumerate(data_loader)):
                 x = x.cuda()
                 y = vladnet.forward(x)
                 y.backward(feats.grad[i].unsqueeze(0))
