@@ -102,8 +102,6 @@ use_multi_resolution = conf['use_multi_resolution']
 side_res = conf['input-shape']
 
 netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
-if use_multi_resolution:
-    netvlad_model.NetVladBase.input_shape = (None, None, 3)
 
 # if test:
 #     gpu_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -165,7 +163,7 @@ if train:
     adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=min_lr / max_lr, max_lr=1.0, frequency=120 * 400,
+        lr_lambda = utils.lr_warmup(wu_steps=100, min_lr=1.0, max_lr=min_lr / max_lr, frequency=120 * 400,
                                     step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
@@ -267,8 +265,14 @@ if train:
             distances = (feats.mm(feats.t()))
             distances.requires_grad_(True)
 
+            t = 50
+
             distances, indices = distances.sort(descending=True)
 
+            distances = distances[:,:t]
+            indices = indices[:,:t]
+
+            print("Composing indices matrix")
             labels_matrix = np.zeros(indices.shape)
 
             for i, r in enumerate(indices):
@@ -276,6 +280,9 @@ if train:
                 for j, c in enumerate(r):
                     if label_list[c] == anchor_label:
                         labels_matrix[i, j] = 1
+
+            # print("Min distance value: ", np.min(distances.cpu().detach().numpy()))
+            # print("Max distance value: ", np.max(distances.cpu().detach().numpy()))
 
             # phase 2: compute loss and dl/dfeats3
             print("Computing loss and dl/dfeats3")
@@ -292,7 +299,7 @@ if train:
                                                 pin_memory=True)
 
             n_step = math.ceil(len(img_dataset) / b_size)
-            for i, x in tqdm(enumerate(data_loader)):
+            for x in tqdm(data_loader):
                 x = x.cuda()
                 y = vladnet.forward(x)
                 y.backward(feats.grad[i].unsqueeze(0))

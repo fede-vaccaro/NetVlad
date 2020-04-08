@@ -143,8 +143,32 @@ class LandmarkTripletGenerator():
     def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, images_per_class=10,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_crop=False, print_statistics=False):
 
+
+        esclude_classes_with_few_images = True
+
         self.print_statistics = print_statistics
+
         classes = os.listdir(train_dir)
+
+        print("Available classes: {}".format(len(classes)))
+
+        to_remove = []
+
+        if esclude_classes_with_few_images:
+            escluded_count = 0
+            for class_ in classes:
+                dir_path = os.path.join(train_dir, class_)
+                n_images = len(os.listdir(dir_path))
+                if n_images < images_per_class:
+                    to_remove.append(class_)
+                    escluded_count += n_images
+                    # print("Class {} escluded from list with {} images".format(class_, n_images))
+
+            for class_ in to_remove:
+                classes.remove(class_)
+
+            print("Available classes after esclusion: {}; Escluded images: {}".format(len(classes), escluded_count))
+
         self.classes = classes
         self.train_dir = train_dir
         self.mining_batch_size = mining_batch_size
@@ -174,11 +198,14 @@ class LandmarkTripletGenerator():
         shuffled_classes = list(classes)
         random.shuffle(shuffled_classes)
         picked_classes = shuffled_classes[:n_classes]
+        # print("Different classes in batch: ", n_classes)
         # load each image in those classes
         imgs = []
         for i, c in enumerate(picked_classes):
             images_in_c = os.listdir(train_dir + "/" + c)
             num_samples_in_c = len(images_in_c)
+            if num_samples_in_c < batch_size // n_classes:
+                print("LESS SAMPLES IN CLASS THAN TARGET ", num_samples_in_c)
             random.shuffle(images_in_c)
             images_in_c = images_in_c[:min(batch_size // n_classes, num_samples_in_c)]
             for image_in_c in images_in_c:
