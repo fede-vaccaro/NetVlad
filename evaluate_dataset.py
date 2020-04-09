@@ -104,7 +104,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     else:
         dataset_path = path_paris
 
-    base_resolution = (base_resolution, base_resolution, 3)
+    base_resolution = model.input_shape
     input_shape_1 = (768, 768, 3)
     input_shape_2 = (504, 504, 3)
     input_shape_3 = (224, 224, 3)

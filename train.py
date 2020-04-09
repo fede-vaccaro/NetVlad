@@ -16,6 +16,7 @@ from tqdm import tqdm
 import ap_loss
 import holidays_testing_helpers as hth
 import netvlad_model
+import gem_model
 import open_dataset_utils as my_utils
 import paths
 import utils
@@ -58,7 +59,7 @@ conf_file.close()
 
 # network
 network_conf = conf['network']
-net_name = network_conf['name']
+pooling_type = network_conf['pooling_type']
 
 n_cluster = network_conf['n_clusters']
 middle_pca = network_conf['middle_pca']
@@ -101,8 +102,6 @@ use_multi_resolution = conf['use_multi_resolution']
 
 side_res = conf['input-shape']
 
-netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
-
 # if test:
 #     gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 #     for device in gpu_devices:
@@ -112,12 +111,15 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
 vladnet = None
-if net_name == "vgg":
-    vladnet = netvlad_model.NetVLADSiameseModel(**network_conf)
-elif net_name == "resnet":
+if pooling_type == "gem":
+    gem_model.NetVladBase.input_shape = (side_res, side_res, 3)
+    vladnet = gem_model.NetVladResnet(**network_conf)
+elif pooling_type == "netvlad":
+    netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
     vladnet = netvlad_model.NetVladResnet(**network_conf)
 else:
     print("Network name not valid.")
+
 
 # vgg, output_shape = vladnet.get_feature_extractor(verbose=False)
 # vgg_netvlad = vladnet.build_netvladmodel()
@@ -130,7 +132,7 @@ train_pca = False
 train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca
 train = not test
 
-if train_kmeans:
+if pooling_type == 'netvlad':
     image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
@@ -163,7 +165,7 @@ if train:
     adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=100, min_lr=1.0, max_lr=min_lr / max_lr, frequency=120 * 400,
+        lr_lambda = utils.lr_warmup(wu_steps=steps_per_epoch*epochs, min_lr=1.0, max_lr=min_lr / max_lr, frequency=120 * 400,
                                     step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
@@ -409,8 +411,6 @@ if train:
 
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
-
-    landmarks_triplet_generator.loader.stop_loading()
 
     model_name = "model_e{}_{}_.pkl".format(epochs + start_epoch, description)
     model_name = os.path.join(EXPORT_DIR, model_name)
