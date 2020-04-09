@@ -40,7 +40,7 @@ class NetVladBase(nn.Module):
 
         normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(size=(336, 336), interpolation=Image.ANTIALIAS),
+            torchvision.transforms.Resize(size=self.input_shape[:2], interpolation=Image.ANTIALIAS),
             torchvision.transforms.ToTensor(),
         ])
         train_transform = torchvision.transforms.Compose([
@@ -383,22 +383,6 @@ class NetVladBase(nn.Module):
 #
 #         self.build_base_model(model)
 
-
-# 'res4e_branch2a' x 80~
-# res4a_branch2a x 77
-# res4a_branch2b x 738
-# res4b_branch2b x 829
-# bn4b_branch2b x 845
-# res4c_branch2a x 804
-# bn4c_branch2a x 827
-# res4c_branch2b
-# bn4c_branch2b x 74.9
-# bn5c_branch2a x 81.4
-# bn5c_branch2a 32 cluster x 81.2
-# bn5c_branch2a diretto x 78.3
-# add_16 32 cluster x
-# add_16 2048 -> 512 -> 84.7
-# add_16 2048 -> 512 -> 64 cluter 85.0
 
 
 class NetVladResnet(NetVladBase):

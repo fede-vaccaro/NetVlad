@@ -102,8 +102,6 @@ use_multi_resolution = conf['use_multi_resolution']
 side_res = conf['input-shape']
 
 netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
-if use_multi_resolution:
-    netvlad_model.NetVladBase.input_shape = (None, None, 3)
 
 # if test:
 #     gpu_devices = tf.config.experimental.list_physical_devices('GPU')
