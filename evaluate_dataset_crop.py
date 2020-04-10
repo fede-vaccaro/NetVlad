@@ -61,14 +61,15 @@ def main():
     print("Loading image dict")
 
     network_conf = conf['network']
-    net_name = network_conf['name']
+    pooling_type = network_conf['pooling_type']
 
     vladnet = None
-    if net_name == "vgg":
-        vladnet = nm.NetVLADSiameseModel(**network_conf)
-    elif net_name == "resnet":
+    if pooling_type == "gem":
+        gem_model.NetVladBase.input_shape = (side_res, side_res, 3)
+        vladnet = gem_model.NetVladResnet(**network_conf)
+    elif pooling_type == "netvlad":
+        nm.NetVladBase.input_shape = (side_res, side_res, 3)
         vladnet = nm.NetVladResnet(**network_conf)
-        # vladnet = nm.GeMResnet(**network_conf)
     else:
         print("Network name not valid.")
 
