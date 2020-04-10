@@ -86,28 +86,35 @@ def get_scaled_query(img, target_side):
     ratio = x / y
 
     if x > y:
-        new_x = target_side
-        new_y = target_side / ratio
-    else:
         new_x = target_side * ratio
         new_y = target_side
+    else:
+        new_x = target_side
+        new_y = target_side / ratio
 
     return int(new_x), int(new_y)
 
 
 def extract_feat(model, img, multiresolution=False, pca=None, query=False):
     with torch.no_grad():
-        img_1 = model.get_transform(int(336 * 0.75) if query else 336)(img).unsqueeze(0)
+        scaling_factor = 0.70
+        #print(int(364 * scaling_factor))
+        #print(int(546 * scaling_factor))
+        #print(int(242 * scaling_factor))
+        base_side = model.input_shape[0]
+        img_1 = model.get_transform(int(base_side * scaling_factor) if query else base_side)(img).unsqueeze(0)
         desc = model.predict_with_netvlad(img_1)
 
         if multiresolution:
-            img_2 = model.get_transform(int(504 * 0.75) if query else 504)(img).unsqueeze(0)
+            img_2 = model.get_transform(int(base_side * 3/2 * scaling_factor) if query else int(base_side * 3/2))(img).unsqueeze(0)
             desc += model.predict_with_netvlad(img_2)
 
-            img_3 = model.get_transform(int(224 * 0.75) if query else 224)(img).unsqueeze(0)
+            img_3 = model.get_transform(int(base_side * 2/3 * scaling_factor) if query else int(base_side * 2/3))(img).unsqueeze(0)
             desc += model.predict_with_netvlad(img_3)
 
             desc /= np.linalg.norm(desc, ord=2)
+
+        desc_local = desc
 
         if pca is not None:
             desc = utils.transform(desc, mean=pca["mean"], components=pca["components"],
@@ -115,6 +122,7 @@ def extract_feat(model, img, multiresolution=False, pca=None, query=False):
                                    pow_whiten=0.5)
 
         desc /= np.linalg.norm(desc, ord=2)
+
         return desc
 
 

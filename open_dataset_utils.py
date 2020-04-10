@@ -1,11 +1,8 @@
-import gc
+import math
 import math
 import os
-import queue
 import random
-import threading
 import time
-from itertools import cycle
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,6 +10,7 @@ import numpy as np
 # from keras.preprocessing.image import ImageDataGenerator
 import torch
 from PIL import Image
+from PIL import ImageFile
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 from torch.utils import data
@@ -20,7 +18,6 @@ from torch.utils import data
 import netvlad_model as nm
 import paths
 
-from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -126,7 +123,6 @@ class ImagesFromListDataset(data.Dataset):
             return im
 
 
-
 def torch_nn(feats, verbose=True):
     feats = torch.Tensor(feats).cuda()
     if verbose:
@@ -209,8 +205,8 @@ class LandmarkTripletGenerator():
 
             self.mining_iterations += 1
             print("\nMining - iteration {}; Mining batch size: {}; Images per class: {}".format(self.mining_iterations,
-                                                                                               current_mining_batch_size,
-                                                                                               current_images_per_class))
+                                                                                                current_mining_batch_size,
+                                                                                                current_images_per_class))
 
             image_list, label_list = self.load_images_list(batch_size=current_mining_batch_size, classes=self.classes,
                                                            n_classes=current_mining_batch_size // current_images_per_class,
@@ -269,7 +265,7 @@ class LandmarkTripletGenerator():
                         j_pos = j
 
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
-                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[0]]
+                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[j_neg]
 
                         d_a_p_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_pos]), 0.0))
                         d_a_n_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_neg]), 0.0))
