@@ -146,6 +146,7 @@ class LandmarkTripletGenerator():
         self.mining_batch_size = mining_batch_size
         self.images_per_class = images_per_class
         self.use_crop = use_crop
+        self.select_neg = True
 
         # self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
         #                      transform=model.full_transform)
@@ -265,7 +266,10 @@ class LandmarkTripletGenerator():
                         j_pos = j
 
                     if (j_pos is not -1) and (j_neg is not -1) and (j_pos - j_neg < self.threshold):
-                        triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[j_neg]]
+                        if self.select_neg:
+                            triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[j_neg]]
+                        else:
+                            triplet = row[0], row[j_pos], row[j_neg], anchor_label, label_list[row[0]]
 
                         d_a_p_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_pos]), 0.0))
                         d_a_n_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_neg]), 0.0))
