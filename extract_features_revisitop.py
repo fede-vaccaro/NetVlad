@@ -15,6 +15,8 @@ import numpy as np
 import torch
 import yaml
 from PIL import Image, ImageFile
+from sklearn.preprocessing import normalize
+from torch.utils import data
 
 import netvlad_model as nm
 import utils
@@ -45,6 +47,13 @@ def save_dict_to_h5(name, dict):
     for key in dict.keys():
         desc = dict[key]
         dataset.create_dataset(name=str(key), data=desc[0])
+    dataset.close()
+
+
+def save_matrix(name, queries, database):
+    dataset = h5py.File(name, 'w')
+    dataset.create_dataset(name='queries', data=queries)
+    dataset.create_dataset(name='database', data=database)
     dataset.close()
 
 
@@ -95,21 +104,45 @@ def get_scaled_query(img, target_side):
     return int(new_x), int(new_y)
 
 
+class ConfigDataset(data.Dataset):
+    def __init__(self, cfg, transform):
+        self.cfg = cfg
+
+        self.query = False
+        self.transform = transform
+
+    def __len__(self):
+        if self.query:
+            return cfg['nq']
+        else:
+            return cfg['n']
+
+    def __getitem__(self, i):
+        if self.query:
+            qim = pil_loader(self.cfg['qim_fname'](self.cfg, i)).crop(self.cfg['gnd'][i]['bbx'])
+            qim = make_square(qim)
+            qim = self.transform(qim)
+            return qim
+        else:
+            im = pil_loader(self.cfg['im_fname'](self.cfg, i))
+            im = self.transform(im)
+            return im
+
+
 def extract_feat(model, img, multiresolution=False, pca=None, query=False):
     with torch.no_grad():
         scaling_factor = 0.70
-        #print(int(364 * scaling_factor))
-        #print(int(546 * scaling_factor))
-        #print(int(242 * scaling_factor))
         base_side = model.input_shape[0]
         img_1 = model.get_transform(int(base_side * scaling_factor) if query else base_side)(img).unsqueeze(0)
         desc = model.predict_with_netvlad(img_1)
 
         if multiresolution:
-            img_2 = model.get_transform(int(base_side * 3/2 * scaling_factor) if query else int(base_side * 3/2))(img).unsqueeze(0)
+            img_2 = model.get_transform(int(base_side * 3 / 2 * scaling_factor) if query else int(base_side * 3 / 2))(
+                img).unsqueeze(0)
             desc += model.predict_with_netvlad(img_2)
 
-            img_3 = model.get_transform(int(base_side * 2/3 * scaling_factor) if query else int(base_side * 2/3))(img).unsqueeze(0)
+            img_3 = model.get_transform(int(base_side * 2 / 3 * scaling_factor) if query else int(base_side * 2 / 3))(
+                img).unsqueeze(0)
             desc += model.predict_with_netvlad(img_3)
 
             desc /= np.linalg.norm(desc, ord=2)
@@ -154,7 +187,8 @@ if __name__ == '__main__':
     conf_file.close()
 
     use_power_norm = conf['use_power_norm']
-    use_multi_resolution = conf['use_multi_resolution']
+    use_multi_resolution = True
+    use_pca = True
     side_res = conf['input-shape']
 
     nm.NetVladBase.input_shape = (side_res, side_res, 3)
@@ -177,7 +211,6 @@ if __name__ == '__main__':
     # config file for the dataset
     # separates query image list from database image list, if revisited protocol used
     cfg = configdataset(test_dataset, os.path.join(data_root, 'datasets'))
-
 
     print("Loading image dict")
 
@@ -220,25 +253,69 @@ if __name__ == '__main__':
     pca['components'] = components
     pca['explained_variance'] = explained_variance
 
-    Q = {}
+    batch_size = 16
+    config_dataset = ConfigDataset(cfg=cfg, transform=None)
+    config_loader = data.DataLoader(dataset=config_dataset, num_workers=8, pin_memory=True, shuffle=False,
+                                    batch_size=batch_size)
 
-    # query images
-    for i in np.arange(cfg['nq']):
-        qim = pil_loader(cfg['qim_fname'](cfg, i)).crop(cfg['gnd'][i]['bbx'])
-        # qim.show()
-        # time.sleep(1)
-        qim = make_square(qim)
-        Q[str(i)] = extract_feat(vladnet, qim, multiresolution=True, pca=pca, query=True)
+    query_scaling = 0.7
+    resolutions = []
 
-        print('>> {}: Processing query image {}'.format(test_dataset, i + 1))
-    save_dict_to_h5('Q_{}.h5'.format(test_dataset), Q)
+    if use_multi_resolution:
+        resolutions += [side_res * 3 / 2, side_res, side_res * 2 / 3]
+    else:
+        resolutions += [side_res]
 
-    X = {}
+    # extract queries
+    print("Extracting query images")
 
-    for i in np.arange(cfg['n']):
-        im = pil_loader(cfg['im_fname'](cfg, i))
-        X[str(i)] = extract_feat(vladnet, im, multiresolution=True, pca=pca)
+    config_dataset.query = True
 
-        print('>> {}: Processing database image {}'.format(test_dataset, i + 1))
+    Q_matrix = np.zeros((len(config_dataset), vladnet.netvlad_out_dim))
 
-    save_dict_to_h5('X_{}.h5'.format(test_dataset), X)
+    n_steps_queries = int(np.ceil(len(config_dataset) / batch_size))
+
+    for res in resolutions:
+        res_ = int(res * query_scaling)
+        print("Extracting at resolution: {}".format(res_))
+        transform = vladnet.get_transform(res_)
+        config_dataset.transform = transform
+
+        Q = vladnet.predict_generator_with_netlvad(generator=config_loader, n_steps=n_steps_queries, verbose=True)
+        Q_matrix += Q
+
+    Q_matrix = normalize(Q_matrix)
+
+    if use_pca:
+        Q_matrix = utils.transform(Q_matrix, mean=pca['mean'], components=pca['components'],
+                                   explained_variance=pca['explained_variance'], whiten=True)
+
+    Q_matrix = normalize(Q_matrix)
+
+    # extract database images
+    print("Extracting DB images")
+
+    config_dataset.query = False
+
+    DB_matrix = np.zeros((len(config_dataset), vladnet.netvlad_out_dim))
+    n_steps = int(np.ceil(len(config_dataset) / batch_size))
+
+    for res in resolutions:
+        res_ = int(res)
+        print("Extracting at resolution: {}".format(res_))
+        transform = vladnet.get_transform(res_)
+        config_dataset.transform = transform
+
+        DB_batch = vladnet.predict_generator_with_netlvad(generator=config_loader, n_steps=n_steps,
+                                                          verbose=True)
+        DB_matrix += DB_batch
+
+    DB_matrix = normalize(DB_matrix)
+
+    if use_pca:
+        DB_matrix = utils.transform(DB_matrix, mean=pca['mean'], components=pca['components'],
+                                    explained_variance=pca['explained_variance'], whiten=True)
+
+    DB_matrix = normalize(DB_matrix)
+
+    save_matrix('{}.h5'.format(test_dataset), Q_matrix, DB_matrix)
