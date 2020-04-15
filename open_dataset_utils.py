@@ -483,7 +483,7 @@ def evaluation_triplet_generator(train_dir, netbatch_size=32, model=None):
 
         im_triplets = [[images_array[i], images_array[j], images_array[k]] for i, j, k in triplets]
         random.shuffle(im_triplets)
-        DIM = min(len(images_array), 256)
+        DIM = min(len(images_array), 240)
 
         # del images_array, indices, distances, feats
         # gc.collect()
