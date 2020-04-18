@@ -131,16 +131,12 @@ class NetVladBase(nn.Module):
         return descs
 
     def features(self, x):
-        # backbone.summary()
         x = self.base_features(x)
         if self.middle_pca['active']:
             x = self.conv_1(x)
 
         pool_1 = nn.functional.max_pool2d(x, kernel_size=self.poolings['pool_1_shape'], stride=1)
         pool_2 = nn.functional.max_pool2d(x, kernel_size=self.poolings['pool_2_shape'], stride=1)
-
-        # pool_1 = nn.functional.adaptive_max_pool2d(x, output_size=(10,10))
-        # pool_2 = nn.functional.adaptive_max_pool2d(x, output_size=(9,9))
 
         out_reshaped = make_locals(x, n_filters=self.n_filters)
         pool_1_reshaped = make_locals(pool_1, n_filters=self.n_filters)
@@ -156,17 +152,7 @@ class NetVladBase(nn.Module):
 
         out = normalize_torch(out)
 
-        # for i in range(self.n_splits):
-        #     split_i = layers.Lambda(lambda x: x[:, :, i * self.split_dimension:(i + 1) * self.split_dimension])(out)
-        #     self.out_splits.append(split_i)
-        #     print("Out shape: {}, split shape: {}".format(out.shape, split_i.shape))
-
         return out
-
-        # self.base_model = Model(backbone.input, [split for split in self.out_splits])
-        # self.siamese_model = None
-        # self.images_input = None
-        # self.filter_l = None  # useless, just for compatibility with netvlad implementation
 
     def avg_pooled_features(self, x):
         x = self.base_features(x)
@@ -215,39 +201,12 @@ class NetVladBase(nn.Module):
             print("WARNING mid pca is not active")
 
     def set_netvlad_weights(self, kmeans):
-        # netvlad_ = self.netvlad[split_index]
-        # weights_netvlad = netvlad_.get_weights()
-        # %%
         centroids = kmeans.cluster_centers_
         self.netvlad_pool.init_params(centroids.T)
-
-        # alpha = self.netvlad.alpha
-        #
-        # assignments_weights = 2. * alpha * centroids
-        # assignments_bias = -alpha * np.sum(np.power(centroids, 2), axis=1)
-        #
-        # centroids = centroids.T
-        # assignments_weights = assignments_weights.T
-        # assignments_bias = assignments_bias.T
-        #
-        # centroids = np.expand_dims(centroids, axis=0)
-        # assignments_weights = np.expand_dims(assignments_weights, axis=0)
-        # assignments_bias = np.expand_dims(assignments_bias, axis=0)
-
-        # weights_netvlad[0] = assignments_weights
-        # weights_netvlad[1] = assignments_bias
-        # weights_netvlad[2] = centroids
-        #
-        # netvlad_.set_weights(weights_netvlad)
         self.netvlad_pool.cuda()
-
-    # def get_netvlad_extractor(self):
-    #     return self.netvlad_base
 
     def initialize_whitening(self, image_folder):
         print("Predicting local features for mid whitening.")
-        # all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30,
-        #                                                                           verbose=1)
 
         n_batches = 30
         train_loader = torch.utils.data.DataLoader(
@@ -263,8 +222,6 @@ class NetVladBase(nn.Module):
             self.eval()
             for x, _ in train_loader:
                 desc = self.base_features(x.cuda())
-                # N, dim, h, w = desc.shape
-                # desc = desc.view(N, dim, h*w).permute(0, 2, 1).reshape(N, -1, 512)
                 desc = desc.cpu().numpy().astype('float32').reshape(-1, 2048)
                 descs_list.append(desc)
                 print("\r>> Extracted batch {}/{} - NetVLAD initialization -".format(i + 1, n_batches), end='')
@@ -294,9 +251,7 @@ class NetVladBase(nn.Module):
         gc.collect()
 
     def initialize_netvlad(self, image_folder):
-        print("Predicting local features for k-means.")
-        # all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30,
-        #                                                                           verbose=1)
+        print("Extracting local features for k-means.")
 
         n_batches = 10
         train_loader = torch.utils.data.DataLoader(
@@ -312,8 +267,6 @@ class NetVladBase(nn.Module):
             self.eval()
             for x, _ in train_loader:
                 desc = self.features(x.cuda())
-                # N, dim, h, w = desc.shape
-                # desc = desc.view(N, dim, h*w).permute(0, 2, 1).reshape(N, -1, 512)
                 desc = desc.cpu().numpy().astype('float32')
                 descs_list.append(desc)
                 print("\r>> Extracted batch {}/{} - NetVLAD initialization -".format(i + 1, n_batches), end='')
@@ -363,11 +316,11 @@ class VLADNet(NetVladBase):
             model = torchvision.models.resnet101(pretrained=False)
 
             if not kwargs['use_relu']:
+                # sobstitute relu with Identity
                 model.layer4[2].relu = nn.Identity()
 
-            # courtesy of F. Radenoviç http://cmp.felk.cvut.cz/cnnimageretrieval/
+            # courtesy of F. Radenovic, from https://github.com/filipradenovic/cnnimageretrieval-pytorch
             file_model = 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/imagenet/imagenet-caffe-resnet101-features-10a101d.pth'
-
             base_features = list(model.children())[:-2]
 
         elif arch_name == 'vgg16':
@@ -378,18 +331,9 @@ class VLADNet(NetVladBase):
         else:
             raise ValueError('Architecture "{}" not available.'.format(arch_name))
 
-        # sobstitute relu with Identity
-
         # get base_features
         base_features = nn.Sequential(*base_features)
         base_features.load_state_dict(model_zoo.load_url(file_model, model_dir=os.getcwd()))
-        # self.regularizer = tf.keras.regularizers.l2(0.001)
-        #
-        # for layer in model.layers:
-        #     layer.trainable = True
-        #     for attr in ['kernel_regularizer']:
-        #         if hasattr(layer, attr):
-        #             setattr(layer, attr, self.regularizer)
 
         self.base_features = base_features.cuda()
         self.base_model = None
@@ -398,4 +342,3 @@ class VLADNet(NetVladBase):
         self.n_filters = self.split_vlad
 
         self.init_pooling_layer()
-        # self.build_base_model(model)

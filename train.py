@@ -7,7 +7,6 @@ from math import ceil
 
 import matplotlib.pyplot as plt
 import numpy as np
-# from triplet_loss import TripletLossLayer
 import torch
 import yaml
 from torchvision.datasets import folder
@@ -308,7 +307,7 @@ if train:
         if val_map > max_val_map:
             model_name = "model_e{0}_{2}_{1:.4f}.pkl".format(e + start_epoch, val_map, description)
             model_name = os.path.join(EXPORT_DIR, model_name)
-            print("Val. mAP improved from {0:.4f}. Saving model to: {1}".format(max_val_map, model_name))
+            print("Val. mAP improved from {0:.4f}".format(max_val_map, model_name))
             # torch.save({
             #     'epoch': e + start_epoch,
             #     'model_state_dict': vladnet.state_dict(),
@@ -354,7 +353,7 @@ if train:
     print("Saved model to disk: ", model_name)
 
     plt.figure(figsize=(8, 8))
-    plt.plot(val_maps, label='validation map')
+    plt.plot(np.array(val_maps), label='validation map')
     plt.plot(losses, label='training loss')
     if compute_validation:
         plt.plot(val_losses, label='validation loss')
@@ -363,13 +362,5 @@ if train:
     plt.savefig("train_val_loss_{}.pdf".format(description))
 
 print("Testing model")
-# print("Input shape: ", netvlad_model.NetVladBase.input_shape)
-
-# if test and model_name is not None:
-#     print("Loading ", model_name)
-#     vgg_netvlad.load_weights(model_name)
-
-# vgg_netvlad = vladnet.get_netvlad_extractor()
-
 hth.tester.test_holidays(model=vladnet, side_res=side_res, use_multi_resolution=use_multi_resolution,
                          rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=True)
