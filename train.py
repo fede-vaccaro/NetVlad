@@ -2,42 +2,43 @@
 import argparse
 import os
 import time
+from itertools import cycle
 from math import ceil
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 import yaml
-from keras import backend as K
-from keras import optimizers, Model
-from keras.applications.vgg16 import preprocess_input
-from keras.preprocessing import image
-# from keras_radam import RAdam
-# from keras_radam.training import RAdamOptimizer
+from torchvision.datasets import folder
 from tqdm import tqdm
-from evaluate_dataset import compute_aps
+
 import holidays_testing_helpers as hth
 import netvlad_model
 import open_dataset_utils as my_utils
 import paths
 import utils
-from triplet_loss import TripletLossLayer
+from evaluate_dataset import compute_aps
+from torch_triplet_loss import TripletLoss
 
 ap = argparse.ArgumentParser()
 
+ap.add_argument("-e", "--export", type=str, default="",
+                help="Dir where to export checkpoints")
 ap.add_argument("-m", "--model", type=str,
                 help="path to *specific* model checkpoint to load")
-ap.add_argument("-s", "--start-epoch", type=int, default=0,
-                help="epoch to restart training at")
-ap.add_argument("-c", "--configuration", type=str, default='train_configuration.yaml',
+ap.add_argument("-c", "--configuration", type=str, default='resnet-conf.yaml',
                 help="Yaml file where the configuration is stored")
 ap.add_argument("-t", "--test", action='store_true',
                 help="If the training be bypassed for testing")
-ap.add_argument("-v", "--validation", action='store_true', default=False,
+ap.add_argument("-val", "--validation", action='store_true', default=False,
                 help="Computing loss on validation test")
 ap.add_argument("-k", "--kmeans", action='store_true',
                 help="If netvlad weights should be initialized for testing")
 ap.add_argument("-d", "--device", type=str, default="0",
                 help="CUDA device to be used. For info type '$ nvidia-smi'")
+ap.add_argument("-v", "--verbose", action='store_true', default=False,
+                help="Verbosity mode.")
+
 args = vars(ap.parse_args())
 
 test = args['test']
@@ -46,14 +47,20 @@ model_name = args['model']
 cuda_device = args['device']
 config_file = args['configuration']
 compute_validation = args['validation']
+verbose = args['verbose']
+
+EXPORT_DIR = args['export']
 
 conf_file = open(config_file, 'r')
 conf = dict(yaml.safe_load(conf_file))
 conf_file.close()
 
+print("Loaded configuration: ")
+for key in conf.keys():
+    print(" - {}: {}".format(key, conf[key]) )
+
 # network
 network_conf = conf['network']
-net_name = network_conf['name']
 
 n_cluster = network_conf['n_clusters']
 middle_pca = network_conf['middle_pca']
@@ -68,19 +75,28 @@ try:
     semi_hard_prob = conf['semi-hard-prob']
 except:
     semi_hard_prob = 0.5
+mining_batch_size = conf['mining_batch_size']
+images_per_class = conf['images_per_class']
+
+mining_batch_size = [int(mbs) for mbs in str(mining_batch_size).split(",")]
+images_per_class = [int(ipc) for ipc in str(images_per_class).split(",")]
 
 # training
 train_description = conf['description']
-mining_batch_size = conf['mining_batch_size']
 minibatch_size = conf['minibatch_size']
 steps_per_epoch = conf['steps_per_epoch']
 epochs = conf['n_epochs']
+use_crop = conf['use_crop']
+checkpoint_freq = conf['checkpoint_freq']
 
 # learning rate
 lr_conf = conf['lr']
 use_warm_up = lr_conf['warm-up']
 warm_up_steps = lr_conf['warm-up-steps']
 max_lr = float(lr_conf['max_value'])
+min_lr = float(lr_conf['min_value'])
+lr_decay = float(lr_conf['lr_decay'])
+step_frequency = lr_conf['step_frequency']
 
 # testing
 rotate_holidays = conf['rotate_holidays']
@@ -90,8 +106,6 @@ use_multi_resolution = conf['use_multi_resolution']
 side_res = conf['input-shape']
 
 netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
-if use_multi_resolution:
-    netvlad_model.NetVladBase.input_shape = (None, None, 3)
 
 # if test:
 #     gpu_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -101,69 +115,86 @@ if use_multi_resolution:
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
-my_model = None
-if net_name == "vgg":
-    my_model = netvlad_model.NetVLADSiameseModel(**network_conf)
-elif net_name == "resnet":
-    my_model = netvlad_model.NetVladResnet(**network_conf)
-else:
-    print("Network name not valid.")
+vladnet = netvlad_model.VLADNet(**network_conf)
 
-vgg, output_shape = my_model.get_feature_extractor(verbose=False)
+# vgg, output_shape = vladnet.get_feature_extractor(verbose=False)
+# vgg_netvlad = vladnet.build_netvladmodel()
+# vgg_netvlad.summary()
 
-vgg_netvlad = my_model.build_netvladmodel()
-vgg_netvlad.summary()
-
-print("Netvlad output shape: ", vgg_netvlad.output_shape)
-print("Feature extractor output shape: ", vgg.output_shape)
+# print("Netvlad output shape: ", vgg_netvlad.output_shape)
+# print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
-train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca
+train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca and (network_conf['pooling_type'] != 'gem')
 train = not test
 
 if train_kmeans:
-    init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
-        paths.landmarks_path,
-        target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
-        batch_size=128 // 4,
-        class_mode=None,
-        interpolation='bilinear', seed=4242)
+    image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
 
-    my_model.train_kmeans(init_generator)
+    # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
+    #     paths.landmarks_path,
+    #     target_size=(netvlad_model.NetVladBase.input_shape[0], netvlad_model.NetVladBase.input_shape[1]),
+    #     batch_size=128 // 4,
+    #     class_mode=None,
+    #     interpolation='bilinear', seed=4242)
+    # Print model's state_dict
+    if verbose:
+        print("Model's state_dict:")
+        for param_tensor in vladnet.state_dict():
+            print(param_tensor, "\t", vladnet.state_dict()[param_tensor].size())
+    if network_conf['middle_pca']['active'] and network_conf['middle_pca']['pretrain']:
+        vladnet.initialize_whitening(image_folder)
+
+    vladnet.initialize_netvlad(image_folder)
 
     if network_conf['post_pca']['active']:
-        my_model.pretrain_pca(init_generator)
+        vladnet.initialize_whitening(image_folder)
 
 if train:
+    vladnet.cuda()
+
     steps_per_epoch = steps_per_epoch
 
-    vgg_netvlad.summary()
+    start_epoch = 0
 
-    start_epoch = int(args['start_epoch'])
-    vgg_netvlad = Model(vgg_netvlad.input, TripletLossLayer(0.1)(vgg_netvlad.output))
+    # define opt
+    adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
+    if use_warm_up:
+        lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0, frequency=step_frequency * steps_per_epoch,
+                                    step_factor=0.1, weight_decay=lr_decay)
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
+
+    # TODO reload model
     if model_name is not None:
-        print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
-        vgg_netvlad.load_weights(model_name)
+        # vladnet.load_weights(model_name)
         # vgg_netvlad.summary()
+        checkpoint = torch.load(model_name)
+        vladnet.load_state_dict(checkpoint['model_state_dict'])
+        adam.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
 
-    opt = optimizers.Adam(lr=1e-5)
-    vgg_netvlad.compile(opt)
+    # define loss
+    criterion = TripletLoss()
 
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
 
-    init_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
-                                                       model=my_model.get_netvlad_extractor(),
-                                                       mining_batch_size=mining_batch_size,
-                                                       minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                       threshold=threshold, use_positives_augmentation=False)
+    # load generators
+    landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+                                                                    model=vladnet,
+                                                                    mining_batch_size=mining_batch_size[0], images_per_class=images_per_class[0],
+                                                                    minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
+                                                                    threshold=threshold, verbose=True, use_crop=use_crop)
 
-    train_generator = init_generator.generator()
+    train_generator = landmarks_triplet_generator.generator()
 
-    test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
-                                                           model=my_model.get_netvlad_extractor(),
-                                                           netbatch_size=minibatch_size)
+    # TODO fix
+    if compute_validation:
+        test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
+                                                               model=vladnet,
+                                                               netbatch_size=minibatch_size)
 
     losses = []
     val_losses = []
@@ -178,18 +209,20 @@ if train:
     if compute_validation:
         for s in range(steps_per_epoch_val):
             x_val, _ = next(test_generator)
-            val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+            val_loss_s = vladnet.predict_with_netvlad(x_val)
             val_loss_e.append(val_loss_s)
 
         starting_val_loss = np.array(val_loss_e).mean()
         print("Starting validation loss: ", starting_val_loss)
 
-    starting_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
-                                     use_multi_resolution=use_multi_resolution,
-                                     rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
+    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet)).mean())
+    starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
+                                            use_multi_resolution=use_multi_resolution,
+                                            rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
+                                            verbose=True)
 
     print("Starting mAP: ", starting_map)
-    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=my_model.get_netvlad_extractor())).mean())
+
 
     for e in range(epochs):
         t0 = time.time()
@@ -198,25 +231,40 @@ if train:
 
         pbar = tqdm(range(steps_per_epoch))
 
+        landmarks_triplet_generator.images_per_class = images_per_class[(e + start_epoch) % len(images_per_class)]
+        landmarks_triplet_generator.mining_batch_size = mining_batch_size[(e + start_epoch) % len(mining_batch_size)]
+
         for s in pbar:
-            it = K.get_value(vgg_netvlad.optimizer.iterations)
+            a, p, n = next(train_generator)
+            vladnet.eval()
+            # clear gradient
+            adam.zero_grad()
+
+            # forward
+            a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
+
+            # loss
+            # loss_s = vgg_netvlad.train_on_batch(x, None)
+            loss_s = criterion(a_d, p_d, n_d)
+            loss_s.backward()
+
+            adam.step()
             if use_warm_up:
-                lr = utils.lr_warmup(it, wu_steps=2000, min_lr=1e-6, max_lr=1e-5, frequency=120*400, step_factor=0.1)
+                lr_scheduler.step(epoch=(e + start_epoch) * steps_per_epoch + s)
+
+            losses_e.append(float(loss_s))
+
+            it = s + (e + start_epoch) * steps_per_epoch
+            if use_warm_up:
+                lr = lr_lambda(it)
             else:
                 lr = max_lr
-
-            K.set_value(vgg_netvlad.optimizer.lr, lr)
-
-            x, y = next(train_generator)
-            # print("Starting training at epoch ", e)
-            loss_s = vgg_netvlad.train_on_batch(x, None)
-            losses_e.append(loss_s)
-
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                          epochs + start_epoch, lr)
             pbar.set_description(description_tqdm)
 
         print("")
+
         loss = np.array(losses_e).mean()
         losses.append(loss)
 
@@ -225,13 +273,14 @@ if train:
         if compute_validation:
             for s in range(steps_per_epoch_val):
                 x_val, _ = next(test_generator)
-                val_loss_s = vgg_netvlad.predict_on_batch(x_val)
+                val_loss_s = vladnet.predict_with_netvlad(x_val)
                 val_loss_e.append(val_loss_s)
 
             val_loss = np.array(val_loss_e).mean()
-        val_map = hth.tester.test_holidays(model=my_model.get_netvlad_extractor(), side_res=side_res,
-                                    use_multi_resolution=use_multi_resolution,
-                                    rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=False)
+        val_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
+                                           use_multi_resolution=use_multi_resolution,
+                                           rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
+                                           verbose=False)
 
         max_val_map = starting_map
         if compute_validation:
@@ -256,32 +305,35 @@ if train:
         #     vgg_netvlad.save_weights(model_name)
         #     not_improving_counter = 0
         if val_map > max_val_map:
-            model_name = "model_e{0}_{2}_{1:.4f}.h5".format(e + start_epoch, val_map, description)
-            print("Val. mAP improved from {0:.4f}. Saving model to: {1}".format(max_val_map, model_name))
-            vgg_netvlad.save_weights(model_name)
+            model_name = "model_e{0}_{2}_{1:.4f}.pkl".format(e + start_epoch, val_map, description)
+            model_name = os.path.join(EXPORT_DIR, model_name)
+            print("Val. mAP improved from {0:.4f}".format(max_val_map, model_name))
+            # torch.save({
+            #     'epoch': e + start_epoch,
+            #     'model_state_dict': vladnet.state_dict(),
+            #     'optimizer_state_dict': adam.state_dict(),
+            # }, model_name)
             not_improving_counter = 0
         else:
             print("Val mAP ({0:.4f}) did not improve from {1:.4f}".format(val_map, max_val_map))
             not_improving_counter += 1
             print("Val mAP does not improve since {} epochs".format(not_improving_counter))
-            if e % 5 == 0:
-                # model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_loss, description)
-                model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.h5".format(e + start_epoch, val_map, description)
-                vgg_netvlad.save_weights(model_name)
+            if (e + start_epoch) % checkpoint_freq == 0:
+                model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.pkl".format(e + start_epoch, val_map, description)
+                model_name = os.path.join(EXPORT_DIR, model_name)
+                torch.save({
+                    'epoch': e + start_epoch,
+                    'model_state_dict': vladnet.state_dict(),
+                    'optimizer_state_dict': adam.state_dict(),
+                }, model_name)
                 print("Saving model to: {} (checkpoint)".format(model_name))
-            # if not_improving_counter == not_improving_thresh:
-            if False:
-                # lr *= 0.5
-                # K.set_value(vgg_netvlad.optimizer.lr, lr)
-                # print("Learning rate set to: {}".format(lr))
-                opt = optimizers.Adam(lr=lr)
-                vgg_netvlad.compile(opt)
-                not_improving_counter = 0
-                print("Optimizer weights restarted.")
 
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",
-              np.array(compute_aps(dataset='o', model=my_model.get_netvlad_extractor())).mean())
+              np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
+        # print("Paris 6K mAP: ",
+        #       np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
+
         if compute_validation:
             print("Validation loss: {}\n".format(val_loss))
         print("Training loss: {}\n".format(loss))
@@ -289,14 +341,19 @@ if train:
         t1 = time.time()
         print("Time for epoch {}: {}s".format(e, int(t1 - t0)))
 
-    init_generator.loader.stop_loading()
+    landmarks_triplet_generator.loader.stop_loading()
 
-    model_name = "model_e{}_{}_.h5".format(epochs + start_epoch, description)
-    vgg_netvlad.save_weights(model_name)
+    model_name = "model_e{}_{}_.pkl".format(epochs + start_epoch, description)
+    model_name = os.path.join(EXPORT_DIR, model_name)
+    torch.save({
+        'epoch': epochs + start_epoch,
+        'model_state_dict': vladnet.state_dict(),
+        'optimizer_state_dict': adam.state_dict(),
+    }, model_name)
     print("Saved model to disk: ", model_name)
 
     plt.figure(figsize=(8, 8))
-    plt.plot(val_maps, label='validation map')
+    plt.plot(np.array(val_maps), label='validation map')
     plt.plot(losses, label='training loss')
     if compute_validation:
         plt.plot(val_losses, label='validation loss')
@@ -305,13 +362,5 @@ if train:
     plt.savefig("train_val_loss_{}.pdf".format(description))
 
 print("Testing model")
-print("Input shape: ", netvlad_model.NetVladBase.input_shape)
-
-if test and model_name is not None:
-    print("Loading ", model_name)
-    vgg_netvlad.load_weights(model_name)
-
-vgg_netvlad = my_model.get_netvlad_extractor()
-
-hth.tester.test_holidays(model=vgg_netvlad, side_res=side_res, use_multi_resolution=use_multi_resolution,
-                  rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=True)
+hth.tester.test_holidays(model=vladnet, side_res=side_res, use_multi_resolution=use_multi_resolution,
+                         rotate_holidays=rotate_holidays, use_power_norm=use_power_norm, verbose=True)

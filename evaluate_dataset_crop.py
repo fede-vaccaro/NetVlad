@@ -6,13 +6,14 @@ import h5py
 import numpy as np
 import torch
 import yaml
+from PIL import Image
 from sklearn.preprocessing import normalize
 from torchvision.datasets import folder
 
 import netvlad_model as nm
-import open_dataset_utils as my_utils
 import paths
 import utils
+from extract_features_revisitop import extract_feat, make_square
 from train_pca import train_pca
 
 
@@ -53,11 +54,6 @@ def main():
     side_res = conf['input-shape']
 
     nm.NetVladBase.input_shape = (side_res, side_res, 3)
-    if use_multi_resolution:
-        nm.NetVladBase.input_shape = (None, None, 3)
-
-    def get_imlist(path):
-        return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
@@ -67,14 +63,7 @@ def main():
     network_conf = conf['network']
     net_name = network_conf['name']
 
-    vladnet = None
-    if net_name == "vgg":
-        vladnet = nm.NetVLADSiameseModel(**network_conf)
-    elif net_name == "resnet":
-        vladnet = nm.VLADNet(**network_conf)
-        # vladnet = nm.GeMResnet(**network_conf)
-    else:
-        print("Network name not valid.")
+    vladnet = nm.VLADNet(**network_conf)
 
     weight_name = model_name
     print("Loading weights: " + weight_name)
@@ -88,9 +77,10 @@ def main():
     elif test_paris:
         dataset = 'p'
 
+
     APs = compute_aps(model=vladnet, dataset=dataset, use_power_norm=use_power_norm,
                       use_multi_resolution=use_multi_resolution, base_resolution=side_res, verbose=True,
-                      pca=None if not use_pca else "pca_{}.h5".format(weight_name))
+                      pca=None if not use_pca else "pca_{}.h5".format(weight_name.split("/")[-1]))
 
     print("mAP is: {}".format(np.array(APs).mean()))
 
@@ -104,15 +94,79 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     else:
         dataset_path = path_paris
 
+    query_files = []
+    bboxes = []
+
+    APs = []
+    queries = {}
+
+    # open queries
+    if dataset == 'o':
+        gt_path = "gt-oxford"
+    else:
+        gt_path = "gt-paris"
+    text_files = os.listdir(gt_path)
+
+    for file in text_files:
+        if file.endswith("_query.txt"):
+            query_file = open(gt_path + "/" + file, 'r')
+
+            readline__split = query_file.readline().split(" ")
+            if dataset == 'o':
+                query_pic = readline__split[0][len("oxc1_"):]
+                dname = 'oxford/'
+            else:
+                query_pic = readline__split[0]
+                dname = 'paris/'
+
+            bbox = readline__split[1:]
+
+            bbox = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
+            bboxes += [bbox]
+
+            query_files += [dataset_path + dname + query_pic + ".jpg"]
+
+            query_name = file[:-len("_query.txt")]
+            queries[query_pic] = query_name
+
+    qfeatures = []
+
+    if pca is not None:
+        if not os.path.isfile(pca):
+            print("PCA {} not found. Starting training.".format(pca))
+            train_pca(model, pca)
+
+    if pca is not None:
+        print("Using PCA.")
+        pca_dataset = h5py.File(pca, 'r')
+        mean = pca_dataset['mean'][:]
+        components = pca_dataset['components'][:]
+        explained_variance = pca_dataset['explained_variance'][:]
+        pca_dataset.close()
+        pca = {'components': components, 'mean': mean, 'explained_variance': explained_variance}
+
+    # extract queries images
+    for i, query_bbox in enumerate(zip(query_files, bboxes)):
+        query, bbox = query_bbox
+        qim = Image.open(query).crop(bbox)
+        qim = make_square(qim)
+        features = extract_feat(model, qim, multiresolution=use_multi_resolution, pca=pca, query=True)[0]
+
+        qfeatures += [features]
+        print("Extracted query {}/{}".format(i + 1, len(query_files)))
+
+    qfeatures = np.array(qfeatures)
+
     base_resolution = model.input_shape
     input_shape_1 = (768, 768, 3)
-    input_shape_2 = (504, 504, 3)
-    input_shape_3 = (224, 224, 3)
+    input_shape_2 = (int(base_resolution[0]*3/2), int(base_resolution[0]*3/2), 3)
+    input_shape_3 = (int(base_resolution[0]*2/3), int(base_resolution[0]*2/3), 3)
+    #input_shape_3 = (224, 224, 3)
     input_shape_4 = (160, 160, 3)
     batch_size = 16
     input_shapes = [input_shape_2, input_shape_3]
 
-    print("Loading images at shape: {}".format(base_resolution))
+    print("\nLoading images at shape: {}".format(base_resolution))
     image_folder = folder.ImageFolder(root=dataset_path, transform=model.full_transform)
     gen = torch.utils.data.DataLoader(
         image_folder,
@@ -126,7 +180,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     all_feats = model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
     if use_multi_resolution:
         for shape in input_shapes:
-            print("Loading images at shape: {}".format(shape))
+            print("\nLoading images at shape: {}".format(shape))
             image_folder = folder.ImageFolder(root=dataset_path, transform=model.get_transform(shape[0]))
             gen = torch.utils.data.DataLoader(
                 image_folder,
@@ -136,21 +190,16 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
             )
             print("Computing descriptors")
             all_feats += model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
+
     all_feats = normalize(all_feats)
+    all_feats_local = all_feats
+
     if pca is not None:
-        if not os.path.isfile(pca):
-            print("PCA {} not found. Starting training.".format(pca))
-            train_pca(model, pca)
+        print("Transforming features")
+        all_feats = utils.transform(all_feats, pca['mean'], pca['components'], pca['explained_variance'], whiten=True, pow_whiten=0.5)
 
-        print("Using PCA.")
-        pca_dataset = h5py.File(pca, 'r')
-        mean = pca_dataset['mean'][:]
-        components = pca_dataset['components'][:]
-        explained_variance = pca_dataset['explained_variance'][:]
-        pca_dataset.close()
-
-        all_feats = utils.transform(all_feats, mean, components, explained_variance, whiten=True, pow_whiten=0.5)
     all_feats = normalize(all_feats)
+
     if use_power_norm:
         all_feats_sign = np.sign(all_feats)
         all_feats = np.power(np.abs(all_feats), 0.5)
@@ -159,30 +208,13 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
 
     # nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
     # distances, indices = nbrs.kneighbors(all_feats)
+    distances = np.dot(all_feats, qfeatures.T)
+    indices = np.argsort(-distances, axis=0).T
+    # distances, indices = my_utils.torch_nn(all_feats, verbose=False)
 
-    distances, indices = my_utils.torch_nn(all_feats, verbose=False)
-
-    APs = []
-    queries = {}
-    # open queries
-    if dataset == 'o':
-        gt_path = "gt-oxford"
-    else:
-        gt_path = "gt-paris"
-    text_files = os.listdir(gt_path)
-    for file in text_files:
-        if file.endswith("_query.txt"):
-            query_file = open(gt_path + "/" + file, 'r')
-
-            if dataset == 'o':
-                query_pic = query_file.readline().split(" ")[0][len("oxc1_"):]
-            else:
-                query_pic = query_file.readline().split(" ")[0]
-
-            query_name = file[:-len("_query.txt")]
-            queries[query_pic] = query_name
-    for row in indices:
-        file_name, _ = img_list[row[0]]
+    for file_name, row in zip(query_files, indices):
+        # file_name, _ = img_list[row[0]]
+        # file_name, _ = img_list[]
         file_name = file_name.split("/")[-1].split(".")[0]
         if file_name in set(queries.keys()):
             ranked_list = []
@@ -190,7 +222,8 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
                 file_name_j, _ = img_list[j]
                 file_name_j = file_name_j.split("/")[-1].split(".")[0]
                 ranked_list += [file_name_j]
-            ap = compute_ap(query_name=queries[file_name], ranked_list=ranked_list, gt_path=gt_path)
+            ap = compute_ap(query_name=queries[file_name], ranked_list=ranked_list,
+                            gt_path=gt_path)
             APs.append(ap)
     return APs
 

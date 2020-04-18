@@ -5,14 +5,16 @@ import PIL
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 import yaml
 from PIL import Image
-from keras.preprocessing import image
+# from keras.preprocessing import image
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 import paths
 import utils
+from netvlad_model import NetVladBase
 
 
 def preprocess_input(x):
@@ -38,6 +40,37 @@ def get_imlist(path):
     return [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
 
 
+class HolidaysDataset(torch.utils.data.Dataset):
+    def __init__(self, transform, img_list, shape=336, rotate=True):
+        super(HolidaysDataset, self).__init__()
+        rotated = open('holidays-rotate.yaml', 'r')
+        self.rotated_imgs = dict(yaml.safe_load(rotated))
+        rotated.close()
+        self.rotate = rotate
+        self.transform = transform
+        self.img_list = img_list
+        self.shape = shape
+
+    def __len__(self):
+        return len(self.img_list)
+
+    def __getitem__(self, index):
+        path = self.img_list[index]
+        img = Image.open(path)
+        # img.resize((self.shape, self.shape), Image.BILINEAR)
+        img_key = path.strip(paths.holidays_pic_path)
+
+        if img_key in list(self.rotated_imgs.keys()) and self.rotate:
+            # print(img_key)
+            degrees = self.rotated_imgs[img_key]
+            degrees = int(degrees)
+            img = img.rotate(-degrees)
+
+        # img = np.asarray(img)
+        img = self.transform(img)
+        return img
+
+
 def create_image_dict(img_list, input_shape, preprocess_input=preprocess_input, rotate=False):
     # input_shape = (224, 224, 3)
     tensor = {}
@@ -47,7 +80,9 @@ def create_image_dict(img_list, input_shape, preprocess_input=preprocess_input, 
     rotated.close()
 
     for path in img_list:
-        img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
+        # img = image.load_img(path, target_size=(input_shape[0], input_shape[1]), interpolation='bilinear')
+        img = Image.open(path)
+        img.resize((input_shape[0], input_shape[1]), Image.BILINEAR)
         img_key = path.strip(paths.holidays_pic_path)
 
         if img_key in list(rotated_imgs.keys()) and rotate:
@@ -56,14 +91,14 @@ def create_image_dict(img_list, input_shape, preprocess_input=preprocess_input, 
             degrees = int(degrees)
             img = img.rotate(-degrees)
 
-        img = image.img_to_array(img)
+        # img = np.asarray(img)
         img = preprocess_input(img)
-        tensor[img_key] = img
+        tensor[img_key] = img.unsqueeze(0)
     # tensor = np.array(tensor)
 
     img_tensor = [tensor[key] for key in tensor]
-    img_tensor = np.array(img_tensor)
-
+    # img_tensor = np.array(img_tensor)
+    img_tensor = torch.cat(img_tensor, dim=0)
     return img_tensor
 
 
@@ -163,9 +198,10 @@ def show_result(display_idx, query_imids, imnames, nqueries=10, nresults=10, ts=
 
 
 class HolidaysTester:
-    img_tensor = None
+    # img_tensor = None
 
-    def test_holidays(self, side_res, model, use_power_norm=False, use_multi_resolution=False, rotate_holidays=True,
+    def test_holidays(self, side_res, model: NetVladBase, use_power_norm=False, use_multi_resolution=False,
+                      rotate_holidays=True,
                       verbose=False):
         imnames = get_imlist_()
         query_imids = [i for i, name in enumerate(imnames) if name[-2:].split('.')[0] == "00"]
@@ -176,13 +212,12 @@ class HolidaysTester:
         input_shape_2 = (504, 504, 3)
         input_shape_3 = (224, 224, 3)
         input_shapes = [input_shape_2, input_shape_3]
-        if verbose:
-            print("Loading images")
-        if self.img_tensor is None:
-            self.img_tensor = create_image_dict(get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
-                                           rotate=rotate_holidays)
-        else:
-            print("Using preallocated image tensor")
+        print("Loading Holidays images")
+        # if self.img_tensor is None:
+        #     self.img_tensor = create_image_dict(get_imlist(paths.holidays_pic_path), input_shape=base_resolution,
+        #                                         rotate=rotate_holidays, preprocess_input=model.full_transform)
+        # else:
+        #     print("Using preallocated image tensor")
 
         if verbose:
             print("Extracting features")
@@ -190,16 +225,32 @@ class HolidaysTester:
         verbose_ = 0
         if verbose:
             verbose_ = 1
-        all_feats = model.predict(self.img_tensor, verbose=verbose_, batch_size=3)
+        img_dataset = HolidaysDataset(img_list=get_imlist(paths.holidays_pic_path), shape=base_resolution[0],
+                                      transform=model.full_transform)
+        b_size = 32
+        data_loader = torch.utils.data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8, shuffle=False,
+                                                  pin_memory=True)
+
+        n_step = math.ceil(len(img_dataset) / b_size)
+        all_feats = model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step)
+
         if use_multi_resolution:
             for shape in input_shapes:
-                img_tensor = create_image_dict(get_imlist(paths.holidays_pic_path), input_shape=shape,
-                                               rotate=True)
+                # img_tensor = create_image_dict(get_imlist(paths.holidays_pic_path), input_shape=shape,
+                #                                rotate=True, preprocess_input=model.full_transform)
                 batch_size = 32
                 if shape[0] >= 768:
                     batch_size = 12
 
-                all_feats += model.predict(img_tensor, verbose=1, batch_size=batch_size)
+                img_dataset = HolidaysDataset(img_list=get_imlist(paths.holidays_pic_path), shape=base_resolution[0],
+                                              transform=model.get_transform(shape[0]))
+                b_size = 32
+                data_loader = torch.utils.data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8,
+                                                          shuffle=False,
+                                                          pin_memory=True)
+
+                all_feats += model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step)
+
         all_feats = normalize(all_feats)
         use_pca = False
         if use_pca:
