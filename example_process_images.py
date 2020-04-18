@@ -97,7 +97,7 @@ my_model = None
 if net_name == "vgg":
     my_model = nm.NetVLADSiameseModel(**network_conf)
 elif net_name == "resnet":
-    my_model = nm.NetVladResnet(**network_conf)
+    my_model = nm.VLADNet(**network_conf)
     # my_model = nm.GeMResnet(**network_conf)
 else:
     print("Network name not valid.")

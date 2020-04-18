@@ -9,6 +9,8 @@ from torchvision.datasets import folder
 
 import netvlad_model as nm
 import paths
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def main():
     ap = argparse.ArgumentParser()
@@ -52,7 +54,7 @@ def main():
     if net_name == "vgg":
         vladnet = nm.NetVLADSiameseModel(**network_conf)
     elif net_name == "resnet":
-        vladnet = nm.NetVladResnet(**network_conf)
+        vladnet = nm.VLADNet(**network_conf)
     else:
         print("Network name not valid.")
 

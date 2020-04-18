@@ -1,16 +1,18 @@
 import gc
+import os
 import time
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.utils.model_zoo as model_zoo
 import torchvision
+from PIL import Image
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import normalize
-from PIL import Image
 
 from netvlad import NetVLAD, make_locals
+from pooling import GeM
 
 
 def normalize_torch(x):
@@ -22,16 +24,13 @@ class NetVladBase(nn.Module):
 
     def __init__(self, **kwargs):
         super(NetVladBase, self).__init__()
-        self.output_layer = kwargs['output_layer']
         self.n_cluster = kwargs['n_clusters']
         self.middle_pca = kwargs['middle_pca']
-        self.output_layer = kwargs['output_layer']
         self.split_vlad = kwargs['split_vlad']
-
+        self.pooling_type = kwargs['pooling_type']
         self.poolings = kwargs['poolings']
         self.feature_compression = kwargs['pooling_feature_compression']
 
-        # self.regularizer = tf.keras.regularizers.l2(0.001)
         if self.middle_pca['active']:
             self.conv_1 = torch.nn.Conv2d(2048, self.middle_pca['dim'], kernel_size=1, stride=1)
             self.conv_1.cuda()
@@ -74,14 +73,18 @@ class NetVladBase(nn.Module):
         ])
         return full_transform
 
-    def init_vlad(self):
-        self.netvlad_pool = NetVLAD(num_clusters=self.n_cluster, dim=self.n_filters)
-        self.netvlad_out_dim = self.netvlad_pool.output_dim
+    def init_pooling_layer(self):
+        if self.pooling_type == 'netvlad':
+            self.netvlad_pool = NetVLAD(num_clusters=self.n_cluster, dim=self.n_filters)
+            self.output_dim = self.netvlad_pool.output_dim
+        elif self.pooling_type == 'gem':
+            self.netvlad_pool = GeM()
+            self.output_dim = 2048
 
     def predict_with_netvlad(self, img_tensor, batch_size=16, verbose=False):
 
         n_imgs = img_tensor.shape[0]
-        descs = np.zeros((n_imgs, self.netvlad_out_dim))
+        descs = np.zeros((n_imgs, self.output_dim))
         n_iters = int(np.ceil(n_imgs / batch_size))
 
         with torch.no_grad():
@@ -133,8 +136,8 @@ class NetVladBase(nn.Module):
         if self.middle_pca['active']:
             x = self.conv_1(x)
 
-        pool_1 = nn.functional.max_pool2d(x, kernel_size=2, stride=1)
-        pool_2 = nn.functional.max_pool2d(x, kernel_size=3, stride=1)
+        pool_1 = nn.functional.max_pool2d(x, kernel_size=self.poolings['pool_1_shape'], stride=1)
+        pool_2 = nn.functional.max_pool2d(x, kernel_size=self.poolings['pool_2_shape'], stride=1)
 
         # pool_1 = nn.functional.adaptive_max_pool2d(x, output_size=(10,10))
         # pool_2 = nn.functional.adaptive_max_pool2d(x, output_size=(9,9))
@@ -171,8 +174,23 @@ class NetVladBase(nn.Module):
         return out
 
     def forward(self, x):
-        x = self.features(x)
-        out = self.netvlad_pool(x)
+        if self.pooling_type == 'gem':
+            if self.poolings['active']:
+                p1, p2 = self.features(x)
+                x1 = self.netvlad_pool(p1).squeeze(-1).squeeze(-1)
+                x2 = self.netvlad_pool(p2).squeeze(-1).squeeze(-1)
+                cat = torch.cat([x1, x2], dim=1)
+                out = torch.nn.functional.normalize(cat, dim=1, p=2)
+            else:
+                x = self.base_features(x)
+                x = self.netvlad_pool(x).squeeze(-1).squeeze(-1)
+                out = torch.nn.functional.normalize(x, dim=1, p=2)
+        elif self.pooling_type == 'netvlad':
+            x = self.features(x)
+            out = self.netvlad_pool(x)
+        else:
+            raise ValueError('Pooling not recognized: {}'.format(self.pooling_type))
+
         return out
 
     def get_siamese_output(self, a, p, n):
@@ -275,7 +293,6 @@ class NetVladBase(nn.Module):
         del descs_list
         gc.collect()
 
-
     def initialize_netvlad(self, image_folder):
         print("Predicting local features for k-means.")
         # all_descs = self.get_feature_extractor(verbose=True)[0].predict_generator(generator=kmeans_generator, steps=30,
@@ -325,7 +342,7 @@ class NetVladBase(nn.Module):
         print("Locals extracted: {}".format(locals.shape))
 
         n_clust = self.n_cluster
-        #locals = normalize(locals, axis=1)
+        # locals = normalize(locals, axis=1)
 
         print("Fitting k-means")
         kmeans = MiniBatchKMeans(n_clusters=n_clust, random_state=424242).fit(locals)
@@ -337,67 +354,35 @@ class NetVladBase(nn.Module):
         gc.collect()
 
 
-# class NetVLADSiameseModel(NetVladBase):
-#     def __init__(self, **kwargs):
-#         model = VGG16(weights='imagenet', include_top=False, pooling='avg', input_shape=self.input_shape)
-#         super(NetVLADSiameseModel, self).__init__(**kwargs)
-#
-#         few_layers = False
-#         if few_layers:
-#             for layer in model.layers:
-#                 layer.trainable = False
-#
-#             training_layers = [
-#                 model.get_layer('block5_conv1'),
-#                 model.get_layer('block5_conv2'),
-#
-#                 model.get_layer('block4_conv1'),
-#                 model.get_layer('block4_conv2'),
-#                 model.get_layer('block4_conv3'),
-#             ]
-#
-#             # set layers untrainable
-#             for layer in training_layers:
-#                 layer.trainable = True
-#                 # print(layer, layer.trainable)
-#                 for attr in ['kernel_regularizer']:
-#                     if hasattr(layer, attr):
-#                         setattr(layer, attr, self.regularizer)
-#         else:
-#             # set layers untrainable
-#             for layer in model.layers:
-#                 layer.trainable = True
-#                 # print(layer, layer.trainable)
-#                 for attr in ['kernel_regularizer']:
-#                     if hasattr(layer, attr):
-#                         setattr(layer, attr, self.regularizer)
-#
-#         model.get_layer(self.output_layer).activation = activations.linear
-#         model = vis.utils.utils.apply_modifications(model)
-#
-#         self.n_filters = None
-#         self.base_model = None
-#         self.siamese_model = None
-#         self.images_input = None
-#         self.filter_l = None  # useless, just for compatibility with netvlad implementation
-#
-#         self.build_base_model(model)
-
-
-
-class NetVladResnet(NetVladBase):
+class VLADNet(NetVladBase):
     def __init__(self, **kwargs):
-        super(NetVladResnet, self).__init__(**kwargs)
+        super(VLADNet, self).__init__(**kwargs)
 
-        model = getattr(torchvision.models, 'resnet101')(pretrained=False)
+        arch_name = kwargs['architecture']
+        if arch_name == 'resnet101':
+            model = torchvision.models.resnet101(pretrained=False)
+
+            if not kwargs['use_relu']:
+                model.layer4[2].relu = nn.Identity()
+
+            # courtesy of F. Radenoviç http://cmp.felk.cvut.cz/cnnimageretrieval/
+            file_model = 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/imagenet/imagenet-caffe-resnet101-features-10a101d.pth'
+
+            base_features = list(model.children())[:-2]
+
+        elif arch_name == 'vgg16':
+            model = torchvision.models.vgg16(pretrained=False)
+            base_features = list(model.features.children())[:-1]
+            self.netvlad_out_dim = 512
+            file_model = 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/imagenet/imagenet-caffe-vgg16-features-d369c8e.pth'
+        else:
+            raise ValueError('Architecture "{}" not available.'.format(arch_name))
 
         # sobstitute relu with Identity
-        #model.layer4[2].relu = nn.Identity()
 
         # get base_features
-        base_features = list(model.children())[:-2]
         base_features = nn.Sequential(*base_features)
-        base_features.load_state_dict(torch.load("imagenet-caffe-resnet101-features-10a101d.pth"))
+        base_features.load_state_dict(model_zoo.load_url(file_model, model_dir=os.getcwd()))
         # self.regularizer = tf.keras.regularizers.l2(0.001)
         #
         # for layer in model.layers:
@@ -412,5 +397,5 @@ class NetVladResnet(NetVladBase):
         self.images_input = None
         self.n_filters = self.split_vlad
 
-        self.init_vlad()
+        self.init_pooling_layer()
         # self.build_base_model(model)

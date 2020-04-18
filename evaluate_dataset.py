@@ -71,7 +71,7 @@ def main():
     if net_name == "vgg":
         vladnet = nm.NetVLADSiameseModel(**network_conf)
     elif net_name == "resnet":
-        vladnet = nm.NetVladResnet(**network_conf)
+        vladnet = nm.VLADNet(**network_conf)
         # vladnet = nm.GeMResnet(**network_conf)
     else:
         print("Network name not valid.")

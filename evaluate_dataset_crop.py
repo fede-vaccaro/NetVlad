@@ -63,14 +63,7 @@ def main():
     network_conf = conf['network']
     net_name = network_conf['name']
 
-    vladnet = None
-    if net_name == "vgg":
-        vladnet = nm.NetVLADSiameseModel(**network_conf)
-    elif net_name == "resnet":
-        vladnet = nm.NetVladResnet(**network_conf)
-        # vladnet = nm.GeMResnet(**network_conf)
-    else:
-        print("Network name not valid.")
+    vladnet = nm.VLADNet(**network_conf)
 
     weight_name = model_name
     print("Loading weights: " + weight_name)

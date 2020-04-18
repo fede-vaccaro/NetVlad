@@ -56,9 +56,12 @@ conf_file = open(config_file, 'r')
 conf = dict(yaml.safe_load(conf_file))
 conf_file.close()
 
+print("Loaded configuration: ")
+for key in conf.keys():
+    print(" - {}: {}".format(key, conf[key]) )
+
 # network
 network_conf = conf['network']
-net_name = network_conf['name']
 
 n_cluster = network_conf['n_clusters']
 middle_pca = network_conf['middle_pca']
@@ -85,6 +88,7 @@ minibatch_size = conf['minibatch_size']
 steps_per_epoch = conf['steps_per_epoch']
 epochs = conf['n_epochs']
 use_crop = conf['use_crop']
+checkpoint_freq = conf['checkpoint_freq']
 
 # learning rate
 lr_conf = conf['lr']
@@ -93,6 +97,7 @@ warm_up_steps = lr_conf['warm-up-steps']
 max_lr = float(lr_conf['max_value'])
 min_lr = float(lr_conf['min_value'])
 lr_decay = float(lr_conf['lr_decay'])
+step_frequency = lr_conf['step_frequency']
 
 # testing
 rotate_holidays = conf['rotate_holidays']
@@ -111,13 +116,7 @@ netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
-vladnet = None
-if net_name == "vgg":
-    vladnet = netvlad_model.NetVLADSiameseModel(**network_conf)
-elif net_name == "resnet":
-    vladnet = netvlad_model.NetVladResnet(**network_conf)
-else:
-    print("Network name not valid.")
+vladnet = netvlad_model.VLADNet(**network_conf)
 
 # vgg, output_shape = vladnet.get_feature_extractor(verbose=False)
 # vgg_netvlad = vladnet.build_netvladmodel()
@@ -127,7 +126,7 @@ else:
 # print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
-train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca
+train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca and (network_conf['pooling_type'] != 'gem')
 train = not test
 
 if train_kmeans:
@@ -163,7 +162,7 @@ if train:
     adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=2000, min_lr=min_lr / max_lr, max_lr=1.0, frequency=120 * 400,
+        lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0, frequency=step_frequency * steps_per_epoch,
                                     step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
@@ -320,7 +319,7 @@ if train:
             print("Val mAP ({0:.4f}) did not improve from {1:.4f}".format(val_map, max_val_map))
             not_improving_counter += 1
             print("Val mAP does not improve since {} epochs".format(not_improving_counter))
-            if (e + start_epoch) % 10 == 0:
+            if (e + start_epoch) % checkpoint_freq == 0:
                 model_name = "model_e{0}_{2}_{1:.4f}_checkpoint.pkl".format(e + start_epoch, val_map, description)
                 model_name = os.path.join(EXPORT_DIR, model_name)
                 torch.save({
