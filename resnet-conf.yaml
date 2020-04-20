@@ -1,0 +1,49 @@
+# architecture configuration
+network:
+  architecture: resnet101 # vgg16 or resnet101
+  pooling_type: netvlad
+  use_relu: true
+  n_clusters: 64
+  split_vlad: 512
+  post_pca:
+    active: false
+  poolings:
+    active: true
+    pool_1_shape: 2
+    pool_2_shape: 3
+  middle_pca:
+    active: false # don't use middle pca and pooling feature compression together!
+    dim: 2048
+    pretrain: false
+  pooling_feature_compression:
+    active: false
+    pool_size: 6
+    stride: 4
+input-shape: 336
+
+# mining parameters
+threshold: 20
+semi-hard-prob: 0.5
+use_crop: false
+mining_batch_size: 8000
+images_per_class: 15
+
+# training parameters
+description: "resnet_relu_batch_size_8000_res512"
+minibatch_size: 6
+memory_saving: true
+steps_per_epoch: 400
+n_epochs: 400
+checkpoint_freq: 20
+lr:
+  step_frequency: 120
+  warm-up: true
+  warm-up-steps: 2000 # if warm-up is active
+  max_value: 1e-5
+  min_value: 1e-6
+  lr_decay: 2e-6
+
+# testing (deprecated)
+rotate_holidays: true
+use_power_norm: false
+use_multi_resolution: false

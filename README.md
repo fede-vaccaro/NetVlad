@@ -6,13 +6,14 @@
 * SciKit Learn
 * NumPy
 * MatPlotLib
+* Pillow = 6.0.0
 
 #### First you need to create the file `paths.py` with:
 ```
-landmarks_path = "/mnt/m2/dataset/"
-# deprecated # holidays_small_labeled_path = "holidays_small_"
-# deprecated # oxford_small_labeled_path = '/mnt/sdb-seagate/datasets/oxford5k/oxbuild_by_queries/'
-holidays_pic_path = 'holidays_small/'
+landmarks_path = PATH_TO_DATASET
+# deprecated # holidays_small_labeled_path = ""
+# deprecated # oxford_small_labeled_path = ""
+holidays_pic_path = PATH_TO_HOLIDAYS
 path_oxford = PATH_TO_OXFORD5K_DATASET
 path_paris = PATH_TO_PARIS6K_DATASET
 ```
@@ -91,8 +92,9 @@ mining_batch_size: 8000
 images_per_class: 15
 
 # training parameters
-description: "resnet_relu_batch_size_8000_res400"
+description: "resnet_relu_batch_size_8000_res512"
 minibatch_size: 6
+memory_saving: true
 steps_per_epoch: 400
 n_epochs: 400
 checkpoint_freq: 20
