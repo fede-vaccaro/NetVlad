@@ -217,7 +217,7 @@ class LandmarkTripletGenerator():
 
             img_dataset = ImagesFromListDataset(image_list=image_list, label_list=label_list, transform=self.transform)
             b_size = 16
-            data_loader = data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8, shuffle=False,
+            data_loader = data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=16, shuffle=False,
                                           pin_memory=True)
 
             n_step = math.ceil(len(img_dataset) / b_size)

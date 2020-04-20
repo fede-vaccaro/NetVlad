@@ -171,7 +171,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     gen = torch.utils.data.DataLoader(
         image_folder,
         batch_size=batch_size,
-        num_workers=8,
+        num_workers=16,
         shuffle=False
     )
     print("Computing descriptors")
