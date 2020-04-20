@@ -88,6 +88,7 @@ steps_per_epoch = conf['steps_per_epoch']
 epochs = conf['n_epochs']
 use_crop = conf['use_crop']
 checkpoint_freq = conf['checkpoint_freq']
+memory_saving = conf['memory_saving']
 
 # learning rate
 lr_conf = conf['lr']
@@ -237,16 +238,29 @@ if train:
         for s in pbar:
             a, p, n = next(train_generator)
             vladnet.eval()
+
             # clear gradient
             adam.zero_grad()
 
-            # forward
-            a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
+
 
             # loss
-            # loss_s = vgg_netvlad.train_on_batch(x, None)
-            loss_s = criterion(a_d, p_d, n_d)
-            loss_s.backward()
+            if not memory_saving:
+                a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
+
+                loss_s = criterion(a_d, p_d, n_d)
+                loss_s.backward()
+            else:
+                loss_s = 0.0
+                for a, p, n in zip(a, p, n):
+                    a_d = vladnet.forward(a.unsqueeze(0).cuda())
+                    p_d = vladnet.forward(p.unsqueeze(0).cuda())
+                    n_d = vladnet.forward(n.unsqueeze(0).cuda())
+
+                    loss_mini_step = criterion(a_d, p_d, n_d)/minibatch_size
+                    loss_mini_step.backward()
+                    loss_s += float(loss_mini_step)
+
 
             adam.step()
             if use_warm_up:
