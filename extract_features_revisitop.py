@@ -263,7 +263,7 @@ if __name__ == '__main__':
 
     config_dataset.query = True
 
-    Q_matrix = np.zeros((len(config_dataset), vladnet.netvlad_out_dim))
+    Q_matrix = np.zeros((len(config_dataset), vladnet.output_dim))
 
     n_steps_queries = int(np.ceil(len(config_dataset) / batch_size))
 
@@ -289,7 +289,7 @@ if __name__ == '__main__':
 
     config_dataset.query = False
 
-    DB_matrix = np.zeros((len(config_dataset), vladnet.netvlad_out_dim))
+    DB_matrix = np.zeros((len(config_dataset), vladnet.output_dim))
     n_steps = int(np.ceil(len(config_dataset) / batch_size))
 
     for res in resolutions:

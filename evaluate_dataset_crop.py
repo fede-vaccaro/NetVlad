@@ -61,7 +61,6 @@ def main():
     print("Loading image dict")
 
     network_conf = conf['network']
-    net_name = network_conf['name']
 
     vladnet = nm.VLADNet(**network_conf)
 
