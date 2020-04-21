@@ -7,6 +7,9 @@
 * NumPy
 * MatPlotLib
 * Pillow = 6.0.0
+* tqdm
+* PyYaml
+* h5Py
 
 #### First you need to create the file `paths.py` with:
 ```
