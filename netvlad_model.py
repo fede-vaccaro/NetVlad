@@ -5,6 +5,7 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 import torchvision
 from PIL import Image
@@ -135,8 +136,8 @@ class NetVladBase(nn.Module):
         if self.middle_pca['active']:
             x = self.conv_1(x)
 
-        pool_1 = nn.functional.max_pool2d(x, kernel_size=self.poolings['pool_1_shape'], stride=1)
-        pool_2 = nn.functional.max_pool2d(x, kernel_size=self.poolings['pool_2_shape'], stride=1)
+        pool_1 = F.max_pool2d(x, kernel_size=self.poolings['pool_1_shape'], stride=1)
+        pool_2 = F.max_pool2d(x, kernel_size=self.poolings['pool_2_shape'], stride=1)
 
         out_reshaped = make_locals(x, n_filters=self.n_filters)
         pool_1_reshaped = make_locals(pool_1, n_filters=self.n_filters)
@@ -311,6 +312,8 @@ class VLADNet(NetVladBase):
     def __init__(self, **kwargs):
         super(VLADNet, self).__init__(**kwargs)
 
+        file_model = None
+
         arch_name = kwargs['architecture']
         if arch_name == 'resnet101':
             model = torchvision.models.resnet101(pretrained=False)
@@ -322,18 +325,31 @@ class VLADNet(NetVladBase):
             # courtesy of F. Radenovic, from https://github.com/filipradenovic/cnnimageretrieval-pytorch
             file_model = 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/imagenet/imagenet-caffe-resnet101-features-10a101d.pth'
             base_features = list(model.children())[:-2]
+        elif arch_name == 'resnest101':
+            torch.hub.list('zhanghang1989/ResNeSt', force_reload=True)
+
+            # load pretrained models, using ResNeSt-50 as an example
+            model = torch.hub.load('zhanghang1989/ResNeSt', 'resnest101', pretrained=True)
+
+            base_features = list(model.children())[:-2]
 
         elif arch_name == 'vgg16':
             model = torchvision.models.vgg16(pretrained=False)
             base_features = list(model.features.children())[:-1]
             self.netvlad_out_dim = 512
             file_model = 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/imagenet/imagenet-caffe-vgg16-features-d369c8e.pth'
+        elif arch_name == 'resnet50':
+            model = torchvision.models.resnet50(pretrained=False)
+            file_model = 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/imagenet/imagenet-caffe-resnet50-features-ac468af.pth'
+            base_features = list(model.children())[:-2]
+
         else:
             raise ValueError('Architecture "{}" not available.'.format(arch_name))
 
         # get base_features
         base_features = nn.Sequential(*base_features)
-        base_features.load_state_dict(model_zoo.load_url(file_model, model_dir=os.getcwd()))
+        if file_model is not None:
+            base_features.load_state_dict(model_zoo.load_url(file_model, model_dir=os.getcwd()))
 
         self.base_features = base_features.cuda()
         self.base_model = None
