@@ -37,6 +37,8 @@ class NetVladBase(nn.Module):
             self.conv_1.cuda()
 
         self.n_filters = None
+        self.use_hook = False
+        self.hook = None
 
         normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = torchvision.transforms.Compose([
@@ -132,7 +134,19 @@ class NetVladBase(nn.Module):
         return descs
 
     def features(self, x):
-        x = self.base_features(x)
+        self.base_features(x)
+
+        if self.use_hook:
+            if self.hook is None:
+                for n, m in self.base_features.named_modules():
+                    if n == "7.2.bn2":
+                        x = m._value_hook
+                        self.hook = m
+            else:
+                x = self.hook._value_hook
+                x = F.relu(x)
+
+        # x = self.base_features(x)
         if self.middle_pca['active']:
             x = self.conv_1(x)
 
@@ -321,7 +335,6 @@ class VLADNet(NetVladBase):
             if not kwargs['use_relu']:
                 # sobstitute relu with Identity
                 model.layer4[2].relu = nn.Identity()
-
             # courtesy of F. Radenovic, from https://github.com/filipradenovic/cnnimageretrieval-pytorch
             file_model = 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/imagenet/imagenet-caffe-resnet101-features-10a101d.pth'
             base_features = list(model.children())[:-2]
@@ -330,6 +343,15 @@ class VLADNet(NetVladBase):
 
             # load pretrained models, using ResNeSt-50 as an example
             model = torch.hub.load('zhanghang1989/ResNeSt', 'resnest101', pretrained=True)
+
+            base_features = list(model.children())[:-2]
+
+
+        elif arch_name == 'resnest50':
+            torch.hub.list('zhanghang1989/ResNeSt', force_reload=True)
+
+            # load pretrained models, using ResNeSt-50 as an example
+            model = torch.hub.load('zhanghang1989/ResNeSt', 'resnest50', pretrained=True)
 
             base_features = list(model.children())[:-2]
 
@@ -351,6 +373,15 @@ class VLADNet(NetVladBase):
         if file_model is not None:
             base_features.load_state_dict(model_zoo.load_url(file_model, model_dir=os.getcwd()))
 
+        # for n, m in base_features.named_modules():
+        #     print("N: '{}' M: '{}'".format(n, m))
+
+        if self.use_hook:
+            for n, m in base_features.named_modules():
+                if n == "7.2.bn2":
+                    print("Hook registered!")
+                    m.register_forward_hook(hook)
+
         self.base_features = base_features.cuda()
         self.base_model = None
         self.siamese_model = None
@@ -358,3 +389,8 @@ class VLADNet(NetVladBase):
         self.n_filters = self.split_vlad
 
         self.init_pooling_layer()
+
+def hook(module, input, output):
+    setattr(module, "_value_hook", output)
+
+

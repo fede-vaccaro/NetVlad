@@ -1,6 +1,6 @@
 # architecture configuration
 network:
-  architecture: resnet101 # vgg16 or resnet101
+  architecture: resnet101 # vgg16, resnet101,
   pooling_type: netvlad
   use_relu: true
   n_clusters: 64
@@ -11,6 +11,8 @@ network:
     active: true
     pool_1_shape: 2
     pool_2_shape: 3
+    stride_1: 1
+    stride_2: 1
   middle_pca:
     active: false # don't use middle pca and pooling feature compression together!
     dim: 2048
@@ -41,7 +43,7 @@ lr:
   warm-up-steps: 2000 # if warm-up is active
   max_value: 1e-5
   min_value: 1e-6
-  lr_decay: 2e-6
+  lr_decay: 1e-6
 
 # testing (deprecated)
 rotate_holidays: true

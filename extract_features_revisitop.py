@@ -254,9 +254,12 @@ if __name__ == '__main__':
     resolutions = []
 
     if use_multi_resolution:
-        resolutions += [side_res * 3 / 2, side_res, side_res * 2 / 3]
+        resolutions += [3 / 2, 1, 2/3]
     else:
-        resolutions += [side_res]
+        resolutions += [1]
+
+
+    resolutions = [r*side_res for r in resolutions]
 
     # extract queries
     print("Extracting query images")

@@ -216,7 +216,8 @@ if train:
         starting_val_loss = np.array(val_loss_e).mean()
         print("Starting validation loss: ", starting_val_loss)
 
-    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet)).mean())
+    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
+    # print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
     starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
                                             rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
