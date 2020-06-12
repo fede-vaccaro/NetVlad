@@ -68,7 +68,7 @@ def train_pca(vladnet, out_name):
     gen = torch.utils.data.DataLoader(
         image_folder,
         batch_size=16,
-        num_workers=8,
+        num_workers=32,
         shuffle=True,
     )
     all_feats = vladnet.predict_generator_with_netlvad(generator=gen, n_steps=4096)
