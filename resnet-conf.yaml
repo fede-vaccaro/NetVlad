@@ -21,7 +21,7 @@ network:
     active: false
     pool_size: 6
     stride: 4
-input-shape: 512
+input-shape: 336
 
 # mining parameters
 threshold: 20
@@ -33,7 +33,7 @@ images_per_class: 15
 # training parameters
 description: "resnet_relu_batch_size_8000_res512"
 minibatch_size: 6
-memory_saving: true
+memory_saving: false
 steps_per_epoch: 400
 n_epochs: 400
 checkpoint_freq: 20

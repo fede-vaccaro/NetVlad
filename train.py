@@ -19,7 +19,7 @@ import paths
 import utils
 from evaluate_dataset import compute_aps
 from torch_triplet_loss import TripletLoss
-
+import metrics
 ap = argparse.ArgumentParser()
 
 ap.add_argument("-e", "--export", type=str, default="",
@@ -130,7 +130,8 @@ train_kmeans = (not test or test_kmeans) and model_name is None and not train_pc
             network_conf['pooling_type'] != 'gem')
 train = not test
 
-if train_kmeans:
+if False:
+# if train_kmeans:
     image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
@@ -179,16 +180,12 @@ if train:
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
 
     # define loss
-    criterion = TripletLoss()
+    # criterion = TripletLoss()
+    n_classes = len(os.listdir(paths.landmarks_path))
+    arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.5)
+    arc_loss.cuda()
 
-    steps_per_epoch_val = ceil(1491
-                               / minibatch_size)
-
-    # TODO fix
-    if compute_validation:
-        test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
-                                                               model=vladnet,
-                                                               netbatch_size=minibatch_size)
+    criterion = torch.nn.CrossEntropyLoss()
 
     losses = []
     val_losses = []
@@ -209,8 +206,8 @@ if train:
         starting_val_loss = np.array(val_loss_e).mean()
         print("Starting validation loss: ", starting_val_loss)
 
-    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
-    print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
+    # print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
+    # print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
     starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
                                             rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
@@ -220,16 +217,24 @@ if train:
 
     try:
         # load generators
-        landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
-                                                                        model=vladnet,
-                                                                        mining_batch_size=mining_batch_size[0],
-                                                                        images_per_class=images_per_class[0],
-                                                                        minibatch_size=minibatch_size,
-                                                                        semi_hard_prob=semi_hard_prob,
-                                                                        threshold=threshold, verbose=True,
-                                                                        use_crop=use_crop)
+        # landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+        #                                                                 model=vladnet,
+        #                                                                 mining_batch_size=mining_batch_size[0],
+        #                                                                 images_per_class=images_per_class[0],
+        #                                                                 minibatch_size=minibatch_size,
+        #                                                                 semi_hard_prob=semi_hard_prob,
+        #                                                                 threshold=threshold, verbose=True,
+        #                                                                 use_crop=use_crop)
+        #
+        # train_generator = landmarks_triplet_generator.generator()
+        image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
+        train_generator = torch.utils.data.DataLoader(
+            image_folder,
+            batch_size=16,
+            num_workers=8,
+            shuffle=True,
+        )
 
-        train_generator = landmarks_triplet_generator.generator()
     except:
         quit()
 
@@ -240,11 +245,12 @@ if train:
 
         pbar = tqdm(range(steps_per_epoch))
 
-        landmarks_triplet_generator.images_per_class = images_per_class[(e + start_epoch) % len(images_per_class)]
-        landmarks_triplet_generator.mining_batch_size = mining_batch_size[(e + start_epoch) % len(mining_batch_size)]
+        # landmarks_triplet_generator.images_per_class = images_per_class[(e + start_epoch) % len(images_per_class)]
+        # landmarks_triplet_generator.mining_batch_size = mining_batch_size[(e + start_epoch) % len(mining_batch_size)]
 
-        for s in pbar:
-            a, p, n = next(train_generator)
+        for s, batch in enumerate(train_generator):
+            # a, p, n = next(train_generator)
+            imgs, labels = batch
             vladnet.eval()
 
             # clear gradient
@@ -252,9 +258,13 @@ if train:
 
             # loss
             if not memory_saving:
-                a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
+                # a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
 
-                loss_s = criterion(a_d, p_d, n_d)
+                imgs_features = vladnet.forward(imgs.cuda())
+                output = arc_loss(imgs_features, labels.cuda())
+                loss_s = criterion(output, labels.cuda())
+
+                # loss_s = criterion(a_d, p_d, n_d)
                 loss_s.backward()
             else:
                 loss_s = 0.0
@@ -280,6 +290,7 @@ if train:
                 lr = max_lr
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                          epochs + start_epoch, lr)
+            pbar.moveto(s)
             pbar.set_description(description_tqdm)
 
         print("")

@@ -26,6 +26,8 @@ rm paris/**/paris_notredame_000188.jpg
 wget https://www.robots.ox.ac.uk/~vgg/data/oxbuildings/oxbuild_images.tgz
 mkdir oxford
 tar -xf oxbuild_images.tgz -C oxford
+mkdir oxford/data
+mv *.jpg oxford/data
 wget ftp://ftp.inrialpes.fr/pub/lear/douze/data/jpg1.tar.gz && wget ftp://ftp.inrialpes.fr/pub/lear/douze/data/jpg2.tar.gz
 tar -xf jpg1.tar.gz & tar -xf jpg2.tar.gz
 mv jpg holidays

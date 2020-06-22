@@ -16,8 +16,8 @@ from netvlad import NetVLAD, make_locals
 from pooling import GeM
 
 
-def normalize_torch(x):
-    return torch.nn.functional.normalize(x, dim=2, p=2)
+def normalize_torch(x, dim=2):
+    return torch.nn.functional.normalize(x, dim=dim, p=2)
 
 
 class NetVladBase(nn.Module):
@@ -80,9 +80,12 @@ class NetVladBase(nn.Module):
         if self.pooling_type == 'netvlad':
             self.netvlad_pool = NetVLAD(num_clusters=self.n_cluster, dim=self.n_filters)
             self.output_dim = self.netvlad_pool.output_dim
+            # add post pca
         elif self.pooling_type == 'gem':
             self.netvlad_pool = GeM()
             self.output_dim = 2048
+
+        self.learned_pca = torch.nn.Linear(self.output_dim, 2048)
 
     def predict_with_netvlad(self, img_tensor, batch_size=16, verbose=False):
 
@@ -189,9 +192,12 @@ class NetVladBase(nn.Module):
         elif self.pooling_type == 'netvlad':
             x = self.features(x)
             out = self.netvlad_pool(x)
+
         else:
             raise ValueError('Pooling not recognized: {}'.format(self.pooling_type))
 
+        out = self.learned_pca(out)
+        out = normalize_torch(out, dim=1)
         return out
 
     def get_siamese_output(self, a, p, n):
@@ -390,7 +396,6 @@ class VLADNet(NetVladBase):
 
         self.init_pooling_layer()
 
+
 def hook(module, input, output):
     setattr(module, "_value_hook", output)
-
-

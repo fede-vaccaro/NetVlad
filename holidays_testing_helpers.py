@@ -29,9 +29,9 @@ def preprocess_input(x):
     return x
 
 
-def get_imlist_(path="holidays_small_2"):
+def get_imlist_(path="holidays"):
     imnames = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
-    imnames = [path.strip("holidays_small_2/") for path in imnames]
+    imnames = [path.strip("holidays/") for path in imnames]
     imnames = [path.strip('.jpg') for path in imnames]
     return imnames
 
@@ -187,11 +187,11 @@ def show_result(display_idx, query_imids, imnames, nqueries=10, nresults=10, ts=
         oks = [True]
         # show query image with white outline
         qimno = query_imids[qno]
-        imfiles.append('holidays_small/' + imnames[qimno] + '.jpg')
+        imfiles.append('holidays/' + imnames[qimno] + '.jpg')
         for qres in display_idx[qno, :nres]:
             # use image name to determine if it is a TP or FP result
             oks.append(imnames[qres][:4] == imnames[qimno][:4])
-            imfiles.append('holidays_small/' + imnames[qres] + '.jpg')
+            imfiles.append('holidays/' + imnames[qres] + '.jpg')
         # print(qno, (imfiles))
         plt.imshow(montage(imfiles, thumb_size=ts, ok=oks, shape=(1, nres)))
         plt.show()
