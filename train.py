@@ -226,7 +226,7 @@ if train:
         #                                                                 use_crop=use_crop)
         #
         # train_generator = landmarks_triplet_generator.generator()
-        image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
+        image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.train_transform)
         train_generator = torch.utils.data.DataLoader(
             image_folder,
             batch_size=16,
@@ -293,6 +293,9 @@ if train:
             pbar.set_description(description_tqdm)
             pbar.update(s)
             pbar.refresh()
+
+            if s == steps_per_epoch:
+                break
 
         print("")
 

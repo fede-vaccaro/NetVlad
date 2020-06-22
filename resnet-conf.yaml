@@ -34,11 +34,11 @@ images_per_class: 15
 description: "resnet_relu_batch_size_8000_res512"
 minibatch_size: 6
 memory_saving: false
-steps_per_epoch: 400
-n_epochs: 400
-checkpoint_freq: 20
+steps_per_epoch: 1200
+n_epochs: 80
+checkpoint_freq: 10
 lr:
-  step_frequency: 120
+  step_frequency: 40
   warm-up: true
   warm-up-steps: 2000 # if warm-up is active
   max_value: 1e-5
