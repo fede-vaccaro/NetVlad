@@ -146,7 +146,7 @@ class NetVLAD(nn.Module):
         vlad = vlad - a
 
         vlad = F.normalize(vlad, p=2, dim=2)  # intra-normalization
-        vlad = vlad.view(x.size(0), -1)  # flatten
+        vlad = vlad.reshape(x.size(0), -1)  # flatten
         vlad = F.normalize(vlad, p=2, dim=1)  # L2 normalize
 
         return vlad

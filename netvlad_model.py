@@ -134,7 +134,7 @@ class NetVladBase(nn.Module):
         return descs
 
     def features(self, x):
-        self.base_features(x)
+        x = self.base_features(x)
 
         if self.use_hook:
             if self.hook is None:

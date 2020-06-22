@@ -57,7 +57,7 @@ conf_file.close()
 
 print("Loaded configuration: ")
 for key in conf.keys():
-    print(" - {}: {}".format(key, conf[key]) )
+    print(" - {}: {}".format(key, conf[key]))
 
 # network
 network_conf = conf['network']
@@ -126,7 +126,8 @@ vladnet = netvlad_model.VLADNet(**network_conf)
 # print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
-train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca and (network_conf['pooling_type'] != 'gem')
+train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca and (
+            network_conf['pooling_type'] != 'gem')
 train = not test
 
 if train_kmeans:
@@ -162,7 +163,8 @@ if train:
     adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0, frequency=step_frequency * steps_per_epoch,
+        lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0,
+                                    frequency=step_frequency * steps_per_epoch,
                                     step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
@@ -181,15 +183,6 @@ if train:
 
     steps_per_epoch_val = ceil(1491
                                / minibatch_size)
-
-    # load generators
-    landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
-                                                                    model=vladnet,
-                                                                    mining_batch_size=mining_batch_size[0], images_per_class=images_per_class[0],
-                                                                    minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                                    threshold=threshold, verbose=True, use_crop=use_crop)
-
-    train_generator = landmarks_triplet_generator.generator()
 
     # TODO fix
     if compute_validation:
@@ -217,7 +210,7 @@ if train:
         print("Starting validation loss: ", starting_val_loss)
 
     print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
-    # print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
+    print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
     starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
                                             rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
@@ -225,6 +218,20 @@ if train:
 
     print("Starting mAP: ", starting_map)
 
+    try:
+        # load generators
+        landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+                                                                        model=vladnet,
+                                                                        mining_batch_size=mining_batch_size[0],
+                                                                        images_per_class=images_per_class[0],
+                                                                        minibatch_size=minibatch_size,
+                                                                        semi_hard_prob=semi_hard_prob,
+                                                                        threshold=threshold, verbose=True,
+                                                                        use_crop=use_crop)
+
+        train_generator = landmarks_triplet_generator.generator()
+    except:
+        quit()
 
     for e in range(epochs):
         t0 = time.time()
@@ -243,8 +250,6 @@ if train:
             # clear gradient
             adam.zero_grad()
 
-
-
             # loss
             if not memory_saving:
                 a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
@@ -258,10 +263,9 @@ if train:
                     p_d = vladnet.forward(p.unsqueeze(0).cuda())
                     n_d = vladnet.forward(n.unsqueeze(0).cuda())
 
-                    loss_mini_step = criterion(a_d, p_d, n_d)/minibatch_size
+                    loss_mini_step = criterion(a_d, p_d, n_d) / minibatch_size
                     loss_mini_step.backward()
                     loss_s += float(loss_mini_step)
-
 
             adam.step()
             if use_warm_up:
