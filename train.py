@@ -162,6 +162,12 @@ if train:
     # define opt
     adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
+    # define loss
+    # criterion = TripletLoss()
+    n_classes = len(os.listdir(paths.landmarks_path))
+    arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.1)
+    arc_loss.cuda()
+
     if use_warm_up:
         lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0,
                                     frequency=step_frequency * steps_per_epoch,
@@ -175,14 +181,10 @@ if train:
         checkpoint = torch.load(model_name)
         vladnet.load_state_dict(checkpoint['model_state_dict'])
         adam.load_state_dict(checkpoint['optimizer_state_dict'])
+        arc_loss.load_state_dict(checkpoint['arc_loss_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
         print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
 
-    # define loss
-    # criterion = TripletLoss()
-    n_classes = len(os.listdir(paths.landmarks_path))
-    arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.1)
-    arc_loss.cuda()
 
     criterion = torch.nn.CrossEntropyLoss()
 
@@ -359,6 +361,7 @@ if train:
                     'epoch': e + start_epoch,
                     'model_state_dict': vladnet.state_dict(),
                     'optimizer_state_dict': adam.state_dict(),
+                    'arc_loss_state_dict': arc_loss.state_dict(),
                 }, model_name)
                 print("Saving model to: {} (checkpoint)".format(model_name))
 
