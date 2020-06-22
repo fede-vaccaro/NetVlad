@@ -181,7 +181,7 @@ if train:
     # define loss
     # criterion = TripletLoss()
     n_classes = len(os.listdir(paths.landmarks_path))
-    arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.5)
+    arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.1)
     arc_loss.cuda()
 
     criterion = torch.nn.CrossEntropyLoss()
