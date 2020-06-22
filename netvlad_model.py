@@ -46,7 +46,7 @@ class NetVladBase(nn.Module):
             torchvision.transforms.ToTensor(),
         ])
         train_transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(size=(int(self.input_shape[0]) * 1.2, int(self.input_shape[0]) * 1.2),
+            torchvision.transforms.Resize(size=(int(self.input_shape[0] * 1.2), int(self.input_shape[0] * 1.2)),
                                           interpolation=Image.ANTIALIAS),
             torchvision.transforms.RandomCrop(size=(336, 336)),
             torchvision.transforms.ToTensor(),

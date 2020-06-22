@@ -229,7 +229,7 @@ if train:
         image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.train_transform)
         train_generator = torch.utils.data.DataLoader(
             image_folder,
-            batch_size=16,
+            batch_size=minibatch_size,
             num_workers=8,
             shuffle=True,
         )
