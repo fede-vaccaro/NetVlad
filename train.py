@@ -130,8 +130,7 @@ train_kmeans = (not test or test_kmeans) and model_name is None and not train_pc
             network_conf['pooling_type'] != 'gem')
 train = not test
 
-if False:
-# if train_kmeans:
+if train_kmeans:
     image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
@@ -197,16 +196,16 @@ if train:
 
     val_loss_e = []
 
-    if compute_validation:
-        for s in range(steps_per_epoch_val):
-            x_val, _ = next(test_generator)
-            val_loss_s = vladnet.predict_with_netvlad(x_val)
-            val_loss_e.append(val_loss_s)
+    # if compute_validation:
+    #     for s in range(steps_per_epoch_val):
+    #         x_val, _ = next(test_generator)
+    #         val_loss_s = vladnet.predict_with_netvlad(x_val)
+    #         val_loss_e.append(val_loss_s)
+    #
+    #     starting_val_loss = np.array(val_loss_e).mean()
+    #     print("Starting validation loss: ", starting_val_loss)
 
-        starting_val_loss = np.array(val_loss_e).mean()
-        print("Starting validation loss: ", starting_val_loss)
-
-    # print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
+    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
     # print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
     starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
@@ -268,14 +267,15 @@ if train:
                 loss_s.backward()
             else:
                 loss_s = 0.0
-                for a, p, n in zip(a, p, n):
-                    a_d = vladnet.forward(a.unsqueeze(0).cuda())
-                    p_d = vladnet.forward(p.unsqueeze(0).cuda())
-                    n_d = vladnet.forward(n.unsqueeze(0).cuda())
-
-                    loss_mini_step = criterion(a_d, p_d, n_d) / minibatch_size
-                    loss_mini_step.backward()
-                    loss_s += float(loss_mini_step)
+                raise NotImplementedError("Memory saving not implemented")
+                # for a, p, n in zip(a, p, n):
+                #     a_d = vladnet.forward(a.unsqueeze(0).cuda())
+                #     p_d = vladnet.forward(p.unsqueeze(0).cuda())
+                #     n_d = vladnet.forward(n.unsqueeze(0).cuda())
+                #
+                #     loss_mini_step = criterion(a_d, p_d, n_d) / minibatch_size
+                #     loss_mini_step.backward()
+                #     loss_s += float(loss_mini_step)
 
             adam.step()
             if use_warm_up:
@@ -290,8 +290,9 @@ if train:
                 lr = max_lr
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                          epochs + start_epoch, lr)
-            pbar.moveto(s)
             pbar.set_description(description_tqdm)
+            pbar.update(s)
+            pbar.refresh()
 
         print("")
 
