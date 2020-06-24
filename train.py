@@ -57,7 +57,7 @@ conf_file.close()
 
 print("Loaded configuration: ")
 for key in conf.keys():
-    print(" - {}: {}".format(key, conf[key]) )
+    print(" - {}: {}".format(key, conf[key]))
 
 # network
 network_conf = conf['network']
@@ -114,9 +114,14 @@ netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
 #         tf.config.experimental.set_memory_growth(device, True)
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(x) for x in [3, 5, 6])  # cuda_device
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 vladnet = netvlad_model.VLADNet(**network_conf)
+
+transform = vladnet.full_transform
+
 
 # vgg, output_shape = vladnet.get_feature_extractor(verbose=False)
 # vgg_netvlad = vladnet.build_netvladmodel()
@@ -126,11 +131,13 @@ vladnet = netvlad_model.VLADNet(**network_conf)
 # print("Feature extractor output shape: ", vgg.output_shape)
 
 train_pca = False
-train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca and (network_conf['pooling_type'] != 'gem')
+train_kmeans = (not test or test_kmeans) and model_name is None and not train_pca and (
+        network_conf['pooling_type'] != 'gem')
 train = not test
 
-if train_kmeans:
-    image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
+#if train_kmeans:
+if False:
+    image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
     #     paths.landmarks_path,
@@ -151,8 +158,12 @@ if train_kmeans:
     if network_conf['post_pca']['active']:
         vladnet.initialize_whitening(image_folder)
 
+if torch.cuda.device_count() > 1:
+    print("Available GPUS: ", torch.cuda.device_count())
+    vladnet = torch.nn.DataParallel(vladnet, device_ids=range(torch.cuda.device_count()))
+
 if train:
-    vladnet.cuda()
+    vladnet.to(device)
 
     steps_per_epoch = steps_per_epoch
 
@@ -162,7 +173,8 @@ if train:
     adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
 
     if use_warm_up:
-        lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0, frequency=step_frequency * steps_per_epoch,
+        lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0,
+                                    frequency=step_frequency * steps_per_epoch,
                                     step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
@@ -185,9 +197,14 @@ if train:
     # load generators
     landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                                     model=vladnet,
-                                                                    mining_batch_size=mining_batch_size[0], images_per_class=images_per_class[0],
-                                                                    minibatch_size=minibatch_size, semi_hard_prob=semi_hard_prob,
-                                                                    threshold=threshold, verbose=True, use_crop=use_crop)
+                                                                    transform=transform,
+                                                                    device=device,
+                                                                    mining_batch_size=mining_batch_size[0],
+                                                                    images_per_class=images_per_class[0],
+                                                                    minibatch_size=minibatch_size,
+                                                                    semi_hard_prob=semi_hard_prob,
+                                                                    threshold=threshold, verbose=True,
+                                                                    use_crop=use_crop)
 
     train_generator = landmarks_triplet_generator.generator()
 
@@ -216,15 +233,17 @@ if train:
         starting_val_loss = np.array(val_loss_e).mean()
         print("Starting validation loss: ", starting_val_loss)
 
-    print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
+    # print("Starting Oxford5K mAP: ", np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
     # print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
-    starting_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
+    starting_map = hth.tester.test_holidays(model=vladnet,
+                                            device=device,
+                                            transform=transform,
+                                            side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
                                             rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
                                             verbose=True)
 
     print("Starting mAP: ", starting_map)
-
 
     for e in range(epochs - start_epoch):
         print("Remaining epochs: ", epochs - start_epoch)
@@ -244,25 +263,34 @@ if train:
             # clear gradient
             adam.zero_grad()
 
-
+            batch_size = a.shape[0]
+            batch = torch.cat([a, p, n], dim=0).to(device)
+            print("Batch shape: ", batch.shape)
+            print("Batch shape a, p, n : ", a.shape, p.shape, n.shape)
 
             # loss
             if not memory_saving:
-                a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
+                #d_a = vladnet.forward(a.to(device))
+                #d_p = vladnet.forward(p.to(device))
+                #d_n = vladnet.forward(n.to(device))
 
-                loss_s = criterion(a_d, p_d, n_d)
+                features = vladnet.forward(batch)
+                d_a = features[0:batch_size]
+                d_p = features[batch_size:batch_size*2]
+                d_n = features[batch_size*2:batch_size*3]
+
+                loss_s = criterion(d_a, d_p, d_n)
                 loss_s.backward()
             else:
                 loss_s = 0.0
                 for a, p, n in zip(a, p, n):
-                    a_d = vladnet.forward(a.unsqueeze(0).cuda())
-                    p_d = vladnet.forward(p.unsqueeze(0).cuda())
-                    n_d = vladnet.forward(n.unsqueeze(0).cuda())
+                    a_d = vladnet.forward(a.unsqueeze(0).to(device))
+                    p_d = vladnet.forward(p.unsqueeze(0).to(device))
+                    n_d = vladnet.forward(n.unsqueeze(0).to(device))
 
-                    loss_mini_step = criterion(a_d, p_d, n_d)/minibatch_size
+                    loss_mini_step = criterion(a_d, p_d, n_d) / minibatch_size
                     loss_mini_step.backward()
                     loss_s += float(loss_mini_step)
-
 
             adam.step()
             if use_warm_up:
@@ -293,7 +321,10 @@ if train:
                 val_loss_e.append(val_loss_s)
 
             val_loss = np.array(val_loss_e).mean()
-        val_map = hth.tester.test_holidays(model=vladnet, side_res=side_res,
+        val_map = hth.tester.test_holidays(model=vladnet,
+                                           device=device,
+                                           transform=transform,
+                                           side_res=side_res,
                                            use_multi_resolution=use_multi_resolution,
                                            rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
                                            verbose=False)
@@ -320,7 +351,7 @@ if train:
         #     print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_loss, model_name))
         #     vgg_netvlad.save_weights(model_name)
         #     not_improving_counter = 0
-        #if val_map > max_val_map:
+        # if val_map > max_val_map:
         if False:
             model_name = "model_e{0}_{2}_{1:.4f}.pkl".format(e + start_epoch, val_map, description)
             model_name = os.path.join(EXPORT_DIR, model_name)

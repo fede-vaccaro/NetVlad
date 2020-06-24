@@ -59,6 +59,7 @@ class NetVladBase(nn.Module):
         self.transform = transform
         self.full_transform = full_transform
         self.train_transform = train_transform
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     def get_transform(self, shape):
         if type(shape) is type(1):
@@ -97,7 +98,7 @@ class NetVladBase(nn.Module):
             for i in range(n_iters):
                 low = i * batch_size
                 high = int(np.min([n_imgs, (i + 1) * batch_size]))
-                batch_gpu = img_tensor[low:high].cuda()
+                batch_gpu = img_tensor[low:high].to(self.device)
                 out_batch = self.forward(batch_gpu).cpu().numpy()
                 descs[low:high] = out_batch
                 if verbose:
@@ -120,7 +121,7 @@ class NetVladBase(nn.Module):
                     x = X[0]
                 else:
                     x = X
-                batch_gpu = x.cuda()
+                batch_gpu = x.to(self.device)
                 out_batch = self.forward(batch_gpu).cpu().numpy()
                 descs.append(out_batch)
                 if verbose:
@@ -175,6 +176,8 @@ class NetVladBase(nn.Module):
         return out
 
     def forward(self, x):
+        print("Input (forward) shape : ", x.shape)
+
         if self.pooling_type == 'gem':
             if self.poolings['active']:
                 p1, p2 = self.features(x)
