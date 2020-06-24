@@ -95,7 +95,7 @@ def main():
     print("mAP is: {}".format(np.array(APs).mean()))
 
 
-def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336,
+def compute_aps(model, transform, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336,
                 verbose=False, pca=None):
     path_oxford = paths.path_oxford
     path_paris = paths.path_paris
@@ -104,7 +104,6 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     else:
         dataset_path = path_paris
 
-    base_resolution = model.input_shape
     input_shape_1 = (768, 768, 3)
     input_shape_2 = (504, 504, 3)
     input_shape_3 = (224, 224, 3)
@@ -113,7 +112,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     input_shapes = [input_shape_2, input_shape_3]
 
     print("Loading images at shape: {}".format(base_resolution))
-    image_folder = folder.ImageFolder(root=dataset_path, transform=model.full_transform)
+    image_folder = folder.ImageFolder(root=dataset_path, transform=transform)
     gen = torch.utils.data.DataLoader(
         image_folder,
         batch_size=batch_size,

@@ -21,14 +21,14 @@ network:
     active: false
     pool_size: 6
     stride: 4
-input-shape: 336
+input-shape: 512
 
 # mining parameters
 threshold: 20
 semi-hard-prob: 0.5
 use_crop: false
-mining_batch_size: 2048
-images_per_class: 4
+mining_batch_size: 8000
+images_per_class: 15
 
 # training parameters
 description: "resnet_relu_batch_size_8000_res512"

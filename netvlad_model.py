@@ -176,7 +176,7 @@ class NetVladBase(nn.Module):
         return out
 
     def forward(self, x):
-        print("Input (forward) shape : ", x.shape)
+        # print("Input (forward) shape : ", x.shape)
 
         if self.pooling_type == 'gem':
             if self.poolings['active']:

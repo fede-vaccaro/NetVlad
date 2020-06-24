@@ -114,7 +114,7 @@ netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
 #         tf.config.experimental.set_memory_growth(device, True)
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(x) for x in [3, 5, 6])  # cuda_device
+os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(x) for x in [1,2])  # cuda_device
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -135,8 +135,7 @@ train_kmeans = (not test or test_kmeans) and model_name is None and not train_pc
         network_conf['pooling_type'] != 'gem')
 train = not test
 
-#if train_kmeans:
-if False:
+if train_kmeans:
     image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
@@ -265,15 +264,11 @@ if train:
 
             batch_size = a.shape[0]
             batch = torch.cat([a, p, n], dim=0).to(device)
-            print("Batch shape: ", batch.shape)
-            print("Batch shape a, p, n : ", a.shape, p.shape, n.shape)
+            # print("Batch shape: ", batch.shape)
+            # print("Batch shape a, p, n : ", a.shape, p.shape, n.shape)
 
             # loss
             if not memory_saving:
-                #d_a = vladnet.forward(a.to(device))
-                #d_p = vladnet.forward(p.to(device))
-                #d_n = vladnet.forward(n.to(device))
-
                 features = vladnet.forward(batch)
                 d_a = features[0:batch_size]
                 d_p = features[batch_size:batch_size*2]
