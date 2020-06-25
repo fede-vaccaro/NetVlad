@@ -188,8 +188,8 @@ if __name__ == '__main__':
 
     use_power_norm = conf['use_power_norm']
     use_multi_resolution = True
-    use_pca = True
-    side_res = conf['input-shape']
+    use_pca = False
+    side_res = 512# conf['input-shape']
 
     nm.NetVladBase.input_shape = (side_res, side_res, 3)
 

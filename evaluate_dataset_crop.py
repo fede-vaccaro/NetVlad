@@ -156,7 +156,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
 
     qfeatures = np.array(qfeatures)
 
-    base_resolution = model.input_shape
+    base_resolution = base_resolution
     input_shape_1 = (768, 768, 3)
     input_shape_2 = (int(base_resolution[0]*3/2), int(base_resolution[0]*3/2), 3)
     input_shape_3 = (int(base_resolution[0]*2/3), int(base_resolution[0]*2/3), 3)

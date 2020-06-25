@@ -29,9 +29,9 @@ def preprocess_input(x):
     return x
 
 
-def get_imlist_(path="holidays"):
+def get_imlist_(path="holidays_small_2"):
     imnames = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(u'.jpg')]
-    imnames = [path.strip("holidays/") for path in imnames]
+    imnames = [path.strip("holidays_small_2/") for path in imnames]
     imnames = [path.strip('.jpg') for path in imnames]
     return imnames
 
@@ -187,11 +187,11 @@ def show_result(display_idx, query_imids, imnames, nqueries=10, nresults=10, ts=
         oks = [True]
         # show query image with white outline
         qimno = query_imids[qno]
-        imfiles.append('holidays/' + imnames[qimno] + '.jpg')
+        imfiles.append('holidays_small/' + imnames[qimno] + '.jpg')
         for qres in display_idx[qno, :nres]:
             # use image name to determine if it is a TP or FP result
             oks.append(imnames[qres][:4] == imnames[qimno][:4])
-            imfiles.append('holidays/' + imnames[qres] + '.jpg')
+            imfiles.append('holidays_small/' + imnames[qres] + '.jpg')
         # print(qno, (imfiles))
         plt.imshow(montage(imfiles, thumb_size=ts, ok=oks, shape=(1, nres)))
         plt.show()
@@ -200,7 +200,7 @@ def show_result(display_idx, query_imids, imnames, nqueries=10, nresults=10, ts=
 class HolidaysTester:
     # img_tensor = None
 
-    def test_holidays(self, side_res, model: NetVladBase, use_power_norm=False, use_multi_resolution=False,
+    def test_holidays(self, side_res, model, device, transform, use_power_norm=False, use_multi_resolution=False,
                       rotate_holidays=True,
                       verbose=False):
         imnames = get_imlist_()
@@ -226,13 +226,14 @@ class HolidaysTester:
         if verbose:
             verbose_ = 1
         img_dataset = HolidaysDataset(img_list=get_imlist(paths.holidays_pic_path), shape=base_resolution[0],
-                                      transform=model.full_transform)
+                                      transform=transform)
         b_size = 32
         data_loader = torch.utils.data.DataLoader(dataset=img_dataset, batch_size=b_size, num_workers=8, shuffle=False,
                                                   pin_memory=True)
 
         n_step = math.ceil(len(img_dataset) / b_size)
-        all_feats = model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step)
+        all_feats = utils.predict_generator_with_netlvad(model=model, device=device, generator=data_loader,
+                                                         n_steps=n_step)
 
         if use_multi_resolution:
             for shape in input_shapes:
@@ -249,7 +250,8 @@ class HolidaysTester:
                                                           shuffle=False,
                                                           pin_memory=True)
 
-                all_feats += model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step)
+                all_feats += utils.predict_generator_with_netlvad(model=model, device=device, generator=data_loader,
+                                                                  n_steps=n_step)
 
         all_feats = normalize(all_feats)
         use_pca = False

@@ -31,12 +31,12 @@ mining_batch_size: 8000
 images_per_class: 15
 
 # training parameters
-description: "resnet_relu_batch_size_8000_res512"
-minibatch_size: 6
+description: "resnet_res336_arcface"
+minibatch_size: 20
 memory_saving: false
-steps_per_epoch: 1200
-n_epochs: 80
-checkpoint_freq: 10
+steps_per_epoch: 750
+n_epochs: 20
+checkpoint_freq: 1
 lr:
   step_frequency: 40
   warm-up: true
