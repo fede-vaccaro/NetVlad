@@ -59,8 +59,8 @@ def main():
     def get_imlist(path):
         return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+    #os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    #os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
     print("Loading image dict")
 
@@ -122,7 +122,7 @@ def compute_aps(model, transform, dataset='o', use_power_norm=False, use_multi_r
     print("Computing descriptors")
     img_list = image_folder.imgs
     n_steps = math.ceil(len(img_list) / batch_size)
-    all_feats = model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
+    all_feats = utils.predict_generator_with_netlvad(model, gen, n_steps=n_steps, verbose=verbose)
     if use_multi_resolution:
         for shape in input_shapes:
             print("Loading images at shape: {}".format(shape))
@@ -134,7 +134,7 @@ def compute_aps(model, transform, dataset='o', use_power_norm=False, use_multi_r
                 shuffle=False,
             )
             print("Computing descriptors")
-            all_feats += model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
+            all_feats += utils.predict_generator_with_netlvad(model, gen, n_steps=n_steps, verbose=verbose)
     all_feats = normalize(all_feats)
     if pca is not None:
         if not os.path.isfile(pca):

@@ -34,8 +34,8 @@ def show_triplet(triplet):
     time.sleep(5)
 
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def preprocess_input(x):
@@ -124,7 +124,9 @@ class ImagesFromListDataset(data.Dataset):
 
 
 def torch_nn(feats, verbose=True):
-    feats = torch.Tensor(feats).cuda()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    feats = torch.Tensor(feats).to(device)
     if verbose:
         print("Mining - Computing distances")
     distances = (feats.mm(feats.t())).cpu()

@@ -32,9 +32,9 @@ images_per_class: 15
 
 # training parameters
 description: "resnet_res336_arcface"
-minibatch_size: 20
+minibatch_size: 10
 memory_saving: false
-steps_per_epoch: 750
+steps_per_epoch: 150000
 n_epochs: 20
 checkpoint_freq: 1
 lr:

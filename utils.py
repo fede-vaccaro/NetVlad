@@ -2,7 +2,7 @@ import numpy as np
 import time
 import torch
 
-def predict_with_netvlad(img_tensor, model, device, output_dim=32768, batch_size=16,verbose=False):
+def predict_with_netvlad(img_tensor, model, device="cuda", output_dim=32768, batch_size=16,verbose=False):
     n_imgs = img_tensor.shape[0]
     descs = np.zeros((n_imgs, output_dim))
     n_iters = int(np.ceil(n_imgs / batch_size))
@@ -25,7 +25,7 @@ def predict_with_netvlad(img_tensor, model, device, output_dim=32768, batch_size
     return descs
 
 
-def predict_generator_with_netlvad(model, device, generator, n_steps, verbose=True):
+def predict_generator_with_netlvad(model, generator, n_steps, device="cuda", verbose=True):
     descs = []
 
     t0 = time.time()
@@ -66,8 +66,8 @@ def lr_warmup(frequency, min_lr=1e-6, max_lr=1e-5, step_factor=0.1, wu_steps=200
             lr = max_lr * it / wu_steps + min_lr * (1. - it / wu_steps)
         else:
             n_cuts = int(np.floor(it / frequency))
-            step_factor = step_factor ** n_cuts
-            lr = max_lr * step_factor
+            # step_factor = step_factor ** n_cuts
+            lr = max_lr * (frequency-it)/frequency
 
         return lr * 1 / (1 + it * weight_decay)
 
