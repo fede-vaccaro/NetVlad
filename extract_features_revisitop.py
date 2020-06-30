@@ -20,9 +20,9 @@ from torch.utils import data
 
 import netvlad_model as nm
 import utils
-from revisitop_utils.dataset import configdataset
-from revisitop_utils.download import download_datasets
-import paths
+from dataset import configdataset
+from download import download_datasets
+
 
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
@@ -202,8 +202,6 @@ if __name__ == '__main__':
     # Set data folder, change if you have downloaded the data somewhere else
     data_root = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'data')
     # Check, and, if necessary, download test data (Oxford and Pairs) and revisited annotation
-    if paths.path_revisitop is not None:
-        data_root = paths.path_revisitop
     download_datasets(data_root)
 
     # Set test dataset: roxford5k | rparis6k
@@ -236,16 +234,16 @@ if __name__ == '__main__':
     # Check, and, if necessary, download test data (Oxford and Pairs) and revisited annotation
     download_datasets(data_root)
 
-    pca_dataset = h5py.File("pca_{}.h5".format(weight_name.split("/")[-1]), 'r')
-    mean = pca_dataset['mean'][:]
-    components = pca_dataset['components'][:]
-    explained_variance = pca_dataset['explained_variance'][:]
-    pca_dataset.close()
+    # pca_dataset = h5py.File("pca_{}.h5".format(weight_name.split("/")[-1]), 'r')
+    # mean = pca_dataset['mean'][:]
+    # components = pca_dataset['components'][:]
+    # explained_variance = pca_dataset['explained_variance'][:]
+    # pca_dataset.close()
 
-    pca = {}
-    pca['mean'] = mean
-    pca['components'] = components
-    pca['explained_variance'] = explained_variance
+    pca = None
+    # pca['mean'] = mean
+    # pca['components'] = components
+    # pca['explained_variance'] = explained_variance
 
     batch_size = 16
     config_dataset = ConfigDataset(cfg=cfg, transform=None)

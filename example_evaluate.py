@@ -12,12 +12,9 @@ import os
 import h5py
 import numpy as np
 
-from revisitop_utils.dataset import configdataset
-from revisitop_utils.download import download_datasets, download_features
+from dataset import configdataset
+from download import download_datasets, download_features
 from evaluate import compute_map
-
-from sklearn.preprocessing import normalize
-import faiss
 
 # ---------------------------------------------------------------------
 # Set data folder and testing parameters
@@ -82,46 +79,8 @@ X = dataset_h5['database'][:].T
 
 # perform search
 print('>> {}: Retrieval...'.format(test_dataset))
-sim_ = np.dot(X.T, Q)
-ranks_ = np.argsort(-sim_, axis=0)
-
-
-Q = Q.T.astype('float32')
-
-
-X = X.T.astype('float32')
-
-d = Q.shape[1]
-distractors = np.random.random((int(300000), d)).astype('float32')
-distractors = normalize(distractors)
-
-nq = Q.shape[0]
-
-X = np.vstack((X, distractors))
-nb = X.shape[0]
-
-print(X.shape)
-
-assert Q.shape[1] == X.shape[1]
-
-index = faiss.IndexFlatIP(d)   # build the index
-nlist = 100
-quantizer = faiss.IndexFlatL2(d)  # the other index
-index = faiss.IndexIVFFlat(quantizer, d, nlist)
-assert not index.is_trained
-index.train(X)
-assert index.is_trained
-
-index.add(X)
-
-index.nprobe = 1000
-
-k = nb
-sim, ranks = index.search(Q, k)
-sim = np.array(sim).T
-ranks = np.array(ranks).T
-
-print(np.min(ranks))
+sim = np.dot(X.T, Q)
+ranks = np.argsort(-sim, axis=0)
 
 # revisited evaluation
 gnd = cfg['gnd']

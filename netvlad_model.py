@@ -87,6 +87,7 @@ class NetVladBase(nn.Module):
             self.output_dim = 2048
 
         self.learned_pca = torch.nn.Linear(self.output_dim, 2048)
+        self.output_dim = 2048
 
     def predict_with_netvlad(self, img_tensor, batch_size=16, verbose=False):
 
@@ -198,7 +199,7 @@ class NetVladBase(nn.Module):
             raise ValueError('Pooling not recognized: {}'.format(self.pooling_type))
 
         out = self.learned_pca(out)
-        out = normalize_torch(out, dim=1)
+        # out = normalize_torch(out, dim=1)
         return out
 
     def get_siamese_output(self, a, p, n):

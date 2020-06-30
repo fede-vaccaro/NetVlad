@@ -10,7 +10,7 @@ network:
   poolings:
     active: true
     pool_1_shape: 2
-    pool_2_shape: 3
+    pool_2_shape: 4
     stride_1: 1
     stride_2: 1
   middle_pca:

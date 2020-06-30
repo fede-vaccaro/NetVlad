@@ -154,6 +154,7 @@ if train_kmeans:
         vladnet.initialize_whitening(image_folder)
 
 transform = vladnet.train_transform
+test_transform = vladnet.full_transform
 n_classes = len(os.listdir(paths.landmarks_path))
 
 arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.1)
@@ -332,7 +333,7 @@ for e in range(epochs):
             val_loss_e.append(val_loss_s)
 
         val_loss = np.array(val_loss_e).mean()
-    val_map = hth.tester.test_holidays(model=vladnet, device=device, transform=transform, side_res=side_res,
+    val_map = hth.tester.test_holidays(model=vladnet, device=device, transform=test_transform, side_res=side_res,
                                        use_multi_resolution=use_multi_resolution,
                                        rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
                                        verbose=False)
@@ -367,7 +368,7 @@ for e in range(epochs):
 
     print("Validation mAP: {}\n".format(val_map))
     print("Oxford5K mAP: ",
-          np.array(compute_aps(dataset='o', model=vladnet, transform=transform, verbose=True,
+          np.array(compute_aps(dataset='o', model=vladnet, transform=test_transform, verbose=True,
                                base_resolution=side_res)).mean())
     # print("Paris 6K mAP: ",
     #       np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
