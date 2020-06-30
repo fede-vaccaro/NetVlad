@@ -131,8 +131,7 @@ train_kmeans = (not test or test_kmeans) and model_name is None and not train_pc
         network_conf['pooling_type'] != 'gem')
 train = not test
 
-if False:
-    # if train_kmeans:
+if train_kmeans:
     image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
