@@ -131,7 +131,8 @@ train_kmeans = (not test or test_kmeans) and model_name is None and not train_pc
         network_conf['pooling_type'] != 'gem')
 train = not test
 
-if train_kmeans:
+if False:
+    # if train_kmeans:
     image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
 
     # init_generator = image.ImageDataGenerator(preprocessing_function=preprocess_input).flow_from_directory(
@@ -161,7 +162,6 @@ arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.1)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
 start_epoch = 0
 # define opt
 adam = opt = torch.optim.Adam(lr=max_lr, params=vladnet.parameters())
@@ -181,7 +181,6 @@ if torch.cuda.device_count() > 1:
     vladnet = torch.nn.DataParallel(vladnet, device_ids=range(torch.cuda.device_count()))
     arc_loss = torch.nn.DataParallel(arc_loss, device_ids=range(torch.cuda.device_count()))
 
-
 print("Defining opt")
 for state in adam.state.values():
     for k, v in state.items():
@@ -193,9 +192,8 @@ if train:
 
     steps_per_epoch = steps_per_epoch
 
-
     # define loss
-    # criterion = TripletLoss()
+    criterion_tl = TripletLoss()
 
     if use_warm_up:
         lr_lambda = utils.lr_warmup(wu_steps=warm_up_steps, min_lr=min_lr / max_lr, max_lr=1.0,
@@ -205,7 +203,7 @@ if train:
 
     # TODO reload model
 
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion_ce = torch.nn.CrossEntropyLoss()
 
     losses = []
     val_losses = []
@@ -237,24 +235,27 @@ if train:
     print("Starting mAP: ", starting_map)
     arc_loss.to(device)
     # load generators
-    # landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
-    #                                                                 model=vladnet,
-    #                                                                 mining_batch_size=mining_batch_size[0],
-    #                                                                 images_per_class=images_per_class[0],
-    #                                                                 minibatch_size=minibatch_size,
-    #                                                                 semi_hard_prob=semi_hard_prob,
-    #                                                                 threshold=threshold, verbose=True,
-    #                                                                 use_crop=use_crop)
-    #
-    # train_generator = landmarks_triplet_generator.generator()
-    image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=transform)
-    train_generator = torch.utils.data.DataLoader(
-        image_folder,
-        batch_size=minibatch_size,
-        num_workers=8,
-        shuffle=True,
-        pin_memory=True
-    )
+    landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
+                                                                    model=vladnet,
+                                                                    device=device,
+                                                                    transform=test_transform,
+                                                                    train_transform=transform,
+                                                                    mining_batch_size=mining_batch_size[0],
+                                                                    images_per_class=images_per_class[0],
+                                                                    minibatch_size=minibatch_size,
+                                                                    semi_hard_prob=semi_hard_prob,
+                                                                    threshold=threshold, verbose=True,
+                                                                    use_crop=use_crop)
+
+    train_generator = landmarks_triplet_generator.generator()
+    # image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=transform)
+    # train_generator = torch.utils.data.DataLoader(
+    #     image_folder,
+    #     batch_size=minibatch_size,
+    #     num_workers=8,
+    #     shuffle=True,
+    #     pin_memory=True
+    # )
 
 for e in range(epochs):
     t0 = time.time()
@@ -267,9 +268,13 @@ for e in range(epochs):
     # landmarks_triplet_generator.mining_batch_size = mining_batch_size[(e + start_epoch) % len(mining_batch_size)]
     torch.cuda.empty_cache()
 
-    for s, batch in enumerate(train_generator):
-        # a, p, n = next(train_generator)
-        imgs, labels = batch
+    for s in pbar:
+        # for s, batch in enumerate(train_generator):
+        (a, l_a), (p, l_p), (n, l_n) = next(train_generator)
+
+        imgs_batch = torch.cat([a, p, n], dim=0)
+        labels_batch = torch.cat([l_a, l_p, l_n], dim=0)
+
         vladnet.eval()
 
         # clear gradient
@@ -278,12 +283,18 @@ for e in range(epochs):
         # loss
         if not memory_saving:
             # a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
-            labels = labels.to(device)
-            imgs_features = vladnet.forward(imgs.to(device))
-            output = arc_loss(imgs_features, labels)
-            loss_s = criterion(output, labels)
+            labels_batch = labels_batch.to(device)
+            imgs_features = vladnet.forward(imgs_batch.to(device))
+            output = arc_loss(imgs_features, labels_batch)
 
-            torch.cuda.synchronize()
+            loss_tl = criterion_tl(imgs_features[:minibatch_size],
+                                   imgs_features[minibatch_size:minibatch_size * 2],
+                                   imgs_features[minibatch_size * 2:minibatch_size * 3])
+            loss_ce = criterion_ce(output, labels_batch)
+
+            loss_s = loss_tl*0.5 + loss_ce*0.5
+
+            # torch.cuda.synchronize()
 
             # loss_s = criterion(a_d, p_d, n_d)
             loss_s.backward()
@@ -303,18 +314,19 @@ for e in range(epochs):
         if use_warm_up:
             lr_scheduler.step(epoch=(e + start_epoch) * steps_per_epoch + s)
 
-        losses_e.append(float(loss_s))
+        losses_e.append(float(loss_ce))
 
         it = s + (e + start_epoch) * steps_per_epoch
         if use_warm_up:
             lr = lr_lambda(it)
         else:
             lr = max_lr
-        description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
+        description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_ce,
                                                                                      epochs + start_epoch, lr)
         pbar.set_description(description_tqdm)
-        pbar.update(1)
-        pbar.refresh()
+
+        # pbar.update(1)
+        # pbar.refresh()
 
         if s == steps_per_epoch:
             break
