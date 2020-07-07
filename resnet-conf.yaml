@@ -10,7 +10,7 @@ network:
   poolings:
     active: true
     pool_1_shape: 2
-    pool_2_shape: 4
+    pool_2_shape: 3
     stride_1: 1
     stride_2: 1
   middle_pca:
@@ -32,7 +32,7 @@ images_per_class: 4
 
 # training parameters
 description: "resnet_res336_arcface"
-minibatch_size: 4
+minibatch_size: 5
 memory_saving: false
 steps_per_epoch: 150000
 n_epochs: 20

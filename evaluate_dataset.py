@@ -159,7 +159,7 @@ def compute_aps(model, transform, dataset='o', use_power_norm=False, use_multi_r
     # nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
     # distances, indices = nbrs.kneighbors(all_feats)
 
-    distances, indices = my_utils.torch_nn(all_feats, verbose=False)
+    distances, indices = my_utils.torch_nn(all_feats, verbose=False, device='cuda')
 
     APs = []
     queries = {}

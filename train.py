@@ -1,3 +1,4 @@
+
 # %%
 import argparse
 import os
@@ -223,10 +224,10 @@ if train:
     #     starting_val_loss = np.array(val_loss_e).mean()
     #     print("Starting validation loss: ", starting_val_loss)
 
-    # print("Starting Oxford5K mAP: ", np.array(
-    #     compute_aps(dataset='o', model=vladnet, transform=transform, verbose=True, base_resolution=side_res)).mean())
+    print("Starting Oxford5K mAP: ", np.array(
+         compute_aps(dataset='o', model=vladnet, transform=test_transform, verbose=True, base_resolution=side_res)).mean())
     # print("Starting Paris6K mAP: ", np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
-    starting_map = hth.tester.test_holidays(model=vladnet, device=device, transform=transform, side_res=side_res,
+    starting_map = hth.tester.test_holidays(model=vladnet, device=device, transform=test_transform, side_res=side_res,
                                             use_multi_resolution=use_multi_resolution,
                                             rotate_holidays=rotate_holidays, use_power_norm=use_power_norm,
                                             verbose=True)
@@ -284,14 +285,14 @@ for e in range(epochs):
             # a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
             labels_batch = labels_batch.to(device)
             imgs_features = vladnet.forward(imgs_batch.to(device))
-            output = arc_loss(imgs_features, labels_batch)
+            output = arc_loss(imgs_features[minibatch_size:], labels_batch[minibatch_size:])
 
             loss_tl = criterion_tl(imgs_features[:minibatch_size],
                                    imgs_features[minibatch_size:minibatch_size * 2],
                                    imgs_features[minibatch_size * 2:minibatch_size * 3])
-            loss_ce = criterion_ce(output, labels_batch)
+            loss_ce = criterion_ce(output, labels_batch[minibatch_size:])
 
-            loss_s = loss_tl*0.5 + loss_ce*0.5
+            loss_s = loss_tl*0.1 + loss_ce
 
             # torch.cuda.synchronize()
 
@@ -320,7 +321,7 @@ for e in range(epochs):
             lr = lr_lambda(it)
         else:
             lr = max_lr
-        description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_ce,
+        description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
                                                                                      epochs + start_epoch, lr)
         pbar.set_description(description_tqdm)
 
