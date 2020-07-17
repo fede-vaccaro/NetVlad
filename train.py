@@ -114,7 +114,7 @@ netvlad_model.NetVladBase.input_shape = (side_res, side_res, 3)
 #         tf.config.experimental.set_memory_growth(device, True)
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(x) for x in [1,2])  # cuda_device
+os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -373,7 +373,7 @@ if train:
 
         print("Validation mAP: {}\n".format(val_map))
         print("Oxford5K mAP: ",
-              np.array(compute_aps(dataset='o', model=vladnet, verbose=True)).mean())
+              np.array(compute_aps(dataset='o', model=vladnet, verbose=True, transform=transform)).mean())
         # print("Paris 6K mAP: ",
         #       np.array(compute_aps(dataset='p', model=vladnet, verbose=True)).mean())
 

@@ -217,14 +217,16 @@ if __name__ == '__main__':
     network_conf = conf['network']
 
     vladnet = nm.VLADNet(**network_conf)
+    if torch.cuda.device_count() > 1:
+        print("Available GPUS: ", torch.cuda.device_count())
+        vladnet_parallel = torch.nn.DataParallel(vladnet, device_ids=range(torch.cuda.device_count()))
 
     # weight_name = "model_e300_resnet-101-torch-caffe-lrscheduling_0.9296_checkpoint.pkl"
     weight_name = model_name
     print("Loading weights: " + weight_name)
     checkpoint = torch.load(weight_name)
-    vladnet.load_state_dict(checkpoint['model_state_dict'])
-    vladnet.cuda()
-    #
+    vladnet_parallel.load_state_dict(checkpoint['model_state_dict'])
+    vladnet_parallel.to('cuda')
 
     # ---------------------------------------------------------------------
     # Set data folder and testing parameters
@@ -276,7 +278,7 @@ if __name__ == '__main__':
         transform = vladnet.get_transform(res_)
         config_dataset.transform = transform
 
-        Q = vladnet.predict_generator_with_netlvad(generator=config_loader, n_steps=n_steps_queries, verbose=True)
+        Q = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader, n_steps=n_steps_queries, verbose=True)
         Q_matrix += Q
 
     Q_matrix = normalize(Q_matrix)
@@ -301,7 +303,7 @@ if __name__ == '__main__':
         transform = vladnet.get_transform(res_)
         config_dataset.transform = transform
 
-        DB_batch = vladnet.predict_generator_with_netlvad(generator=config_loader, n_steps=n_steps,
+        DB_batch = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader, n_steps=n_steps,
                                                           verbose=True)
         DB_matrix += DB_batch
 

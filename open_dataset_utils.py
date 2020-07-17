@@ -162,7 +162,7 @@ class LandmarkTripletGenerator():
         self.semi_hard_prob = semi_hard_prob
 
         target_loss = 0.1
-        delta = 0.04
+        delta = 0.02
 
         self.mining_iterations = 0
 
@@ -343,7 +343,7 @@ class LandmarkTripletGenerator():
             # select just K different classes
             # K_classes = 256
             n_triplets = len(im_triplets)
-            K_classes = min(n_triplets, 240)
+            K_classes = min(n_triplets, 256)
             im_triplets = im_triplets[:K_classes]
 
             anchors = [t[0] for t in im_triplets]
