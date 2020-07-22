@@ -279,8 +279,8 @@ class LandmarkTripletGenerator():
                         d_a_p_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_pos]), 0.0))
                         d_a_n_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_neg]), 0.0))
 
-                        d_a_p = d_a_p_2
-                        d_a_n = d_a_n_2
+                        d_a_p = np.sqrt(d_a_p_2)
+                        d_a_n = np.sqrt(d_a_n_2)
 
                         loss = 0.1 + d_a_p_2 - d_a_n_2
 
