@@ -69,7 +69,7 @@ def lr_warmup(frequency, min_lr=1e-6, max_lr=1e-5, step_factor=0.1, wu_steps=200
             step_factor = step_factor ** n_cuts
             lr = max_lr * step_factor
 
-        return lr * 1 / (1 + (it % frequency) * weight_decay)
+        return lr  * 1 / (1 + (it % frequency) * weight_decay)
 
     lambda_lr = lambda it: funct(it, min_lr=min_lr, max_lr=max_lr, step_factor=step_factor, wu_steps=wu_steps)
 
