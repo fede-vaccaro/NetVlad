@@ -285,12 +285,12 @@ for e in range(epochs):
             # a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
             labels_batch = labels_batch.to(device)
             imgs_features = vladnet.forward(imgs_batch.to(device))
-            output = arc_loss(imgs_features[minibatch_size:], labels_batch[minibatch_size:])
+            output = arc_loss(imgs_features, labels_batch)
 
             loss_tl = criterion_tl(imgs_features[:minibatch_size],
                                    imgs_features[minibatch_size:minibatch_size * 2],
                                    imgs_features[minibatch_size * 2:minibatch_size * 3])
-            loss_ce = criterion_ce(output, labels_batch[minibatch_size:])
+            loss_ce = criterion_ce(output, labels_batch)
 
             loss_s = loss_tl*0.1 + loss_ce
 

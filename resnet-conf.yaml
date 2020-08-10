@@ -27,14 +27,14 @@ input-shape: 336
 threshold: 20
 semi-hard-prob: 0.5
 use_crop: false
-mining_batch_size: 2048
-images_per_class: 4
+mining_batch_size: 8000
+images_per_class: 16
 
 # training parameters
-description: "resnet_res336_arcface"
-minibatch_size: 5
+description: "resnet_res336_arcface_01-1"
+minibatch_size: 4
 memory_saving: false
-steps_per_epoch: 150000
+steps_per_epoch: 150000 
 n_epochs: 20
 checkpoint_freq: 1
 lr:

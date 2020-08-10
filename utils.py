@@ -66,7 +66,7 @@ def lr_warmup(frequency, min_lr=1e-6, max_lr=1e-5, step_factor=0.1, wu_steps=200
             lr = max_lr * it / wu_steps + min_lr * (1. - it / wu_steps)
         else:
             n_cuts = int(np.floor(it / frequency))
-            # step_factor = step_factor ** n_cuts
+            #step_factor = step_factor ** n_cuts
             lr = max_lr * (frequency-it)/frequency
 
         return lr * 1 / (1 + it * weight_decay)

@@ -65,7 +65,7 @@ def main():
     print("Loading image dict")
 
     network_conf = conf['network']
-    net_name = network_conf['name']
+    # net_name = network_conf['name']
 
     vladnet = None
     if net_name == "vgg":
