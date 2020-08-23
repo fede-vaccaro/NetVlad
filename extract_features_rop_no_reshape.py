@@ -236,7 +236,7 @@ if __name__ == '__main__':
     resolutions = []
 
     if use_multi_resolution:
-        resolutions += [3 / 2, 1, 2 / 3]
+        resolutions += [np.sqrt(2), 1, 1/np.sqrt(2)]
     else:
         resolutions += [1]
 
