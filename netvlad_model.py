@@ -61,14 +61,10 @@ class NetVladBase(nn.Module):
         self.train_transform = train_transform
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    def get_transform(self, shape):
-        if type(shape) is type(1):
-            shape_ = (shape, shape)
-        else:
-            shape_ = shape
+    def get_transform(self):
         normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(size=shape_, interpolation=Image.ANTIALIAS),
+            # torchvision.transforms.Resize(size=shape_, interpolation=Image.ANTIALIAS),
             torchvision.transforms.ToTensor(),
         ])
         full_transform = torchvision.transforms.Compose([
