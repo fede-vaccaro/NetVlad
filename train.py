@@ -233,7 +233,8 @@ if train:
     except:
         quit()
 
-    for e in range(epochs):
+    for e in range(epochs - start_epoch):
+        print("Remaining epochs: ", epochs - start_epoch)
         t0 = time.time()
 
         losses_e = []
@@ -279,7 +280,7 @@ if train:
             else:
                 lr = max_lr
             description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
-                                                                                         epochs + start_epoch, lr)
+                                                                                         epochs, lr)
             pbar.set_description(description_tqdm)
 
         print("")
@@ -323,7 +324,8 @@ if train:
         #     print("Val. loss improved from {0:.4f}. Saving model to: {1}".format(min_val_loss, model_name))
         #     vgg_netvlad.save_weights(model_name)
         #     not_improving_counter = 0
-        if val_map > max_val_map:
+        #if val_map > max_val_map:
+        if False:
             model_name = "model_e{0}_{2}_{1:.4f}.pkl".format(e + start_epoch, val_map, description)
             model_name = os.path.join(EXPORT_DIR, model_name)
             print("Val. mAP improved from {0:.4f}".format(max_val_map, model_name))
@@ -362,10 +364,10 @@ if train:
 
     landmarks_triplet_generator.loader.stop_loading()
 
-    model_name = "model_e{}_{}_.pkl".format(epochs + start_epoch, description)
+    model_name = "model_e{}_{}_.pkl".format(epochs, description)
     model_name = os.path.join(EXPORT_DIR, model_name)
     torch.save({
-        'epoch': epochs + start_epoch,
+        'epoch': epochs,
         'model_state_dict': vladnet.state_dict(),
         'optimizer_state_dict': adam.state_dict(),
     }, model_name)
