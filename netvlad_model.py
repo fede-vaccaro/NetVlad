@@ -15,10 +15,26 @@ from sklearn.decomposition import PCA
 from netvlad import NetVLAD, make_locals
 from pooling import GeM
 
+from contextlib import nullcontext
 
 def normalize_torch(x):
     return torch.nn.functional.normalize(x, dim=2, p=2)
 
+class Attention(nn.Module):
+    def __init__(self):
+        super(Attention, self).__init__()
+
+        self.conv1 = nn.Conv2d(2048, 256, 3)
+        self.attention_score = nn.Conv2d(256, 1, 1)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = F.relu(x)
+
+        x = self.attention_score(x)
+        attention_score = F.relu(x)
+
+        return attention_score
 
 class NetVladBase(nn.Module):
     input_shape = (336, 336, 3)
@@ -61,10 +77,12 @@ class NetVladBase(nn.Module):
         self.train_transform = train_transform
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    def get_transform(self):
+        self.attention_module = Attention()
+
+    def get_transform(self, shape_):
         normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = torchvision.transforms.Compose([
-            # torchvision.transforms.Resize(size=shape_, interpolation=Image.ANTIALIAS),
+            torchvision.transforms.Resize(size=shape_, interpolation=Image.ANTIALIAS),
             torchvision.transforms.ToTensor(),
         ])
         full_transform = torchvision.transforms.Compose([
@@ -171,21 +189,38 @@ class NetVladBase(nn.Module):
         out = torch.nn.functional.adaptive_avg_pool2d(x, output_size=(1, 1)).squeeze(-1).squeeze(-1)
         return out
 
-    def forward(self, x):
+    def forward(self, x, attention_phase=False):
         # print("Input (forward) shape : ", x.shape)
 
         if self.pooling_type == 'gem':
             if self.poolings['active']:
+                raise NotImplemented
                 p1, p2 = self.features(x)
                 x1 = self.netvlad_pool(p1).squeeze(-1).squeeze(-1)
                 x2 = self.netvlad_pool(p2).squeeze(-1).squeeze(-1)
                 cat = torch.cat([x1, x2], dim=1)
                 out = torch.nn.functional.normalize(cat, dim=1, p=2)
             else:
-                x = self.base_features(x)
-                x = self.netvlad_pool(x).squeeze(-1).squeeze(-1)
-                out = torch.nn.functional.normalize(x, dim=1, p=2)
+                if attention_phase:
+                    net_ctx = torch.no_grad()
+                    att_ctx = nullcontext()
+                else:
+                    net_ctx = nullcontext()
+                    att_ctx = torch.no_grad()
+
+                with net_ctx:
+                    x = self.base_features(x)
+
+                with att_ctx:
+                    att_score = self.attention_module(x)
+                    x = x*att_score
+
+                    x = self.netvlad_pool(x).squeeze(-1).squeeze(-1)
+                    out = torch.nn.functional.normalize(x, dim=1, p=2)
+
+
         elif self.pooling_type == 'netvlad':
+            raise NotImplemented
             x = self.features(x)
             out = self.netvlad_pool(x)
         else:

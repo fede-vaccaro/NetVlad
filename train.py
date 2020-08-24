@@ -177,7 +177,6 @@ if train:
                                     step_factor=0.1, weight_decay=lr_decay)
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer=adam, lr_lambda=[lr_lambda])
 
-    # TODO reload model
     if model_name is not None:
         # vladnet.load_weights(model_name)
         # vgg_netvlad.summary()
@@ -244,13 +243,25 @@ if train:
 
     print("Starting mAP: ", starting_map)
 
-    for e in range(epochs - start_epoch):
+    for e in range((epochs - start_epoch)*2):
         print("Remaining epochs: ", epochs - start_epoch)
         t0 = time.time()
 
+        if e % 2 == 0:
+            train_phase = 'attention'
+            is_attention_phase = True
+        else:
+            train_phase = 'model'
+            is_attention_phase = False
+
+        print("Train phase: ", train_phase)
+
         losses_e = []
 
-        pbar = tqdm(range(steps_per_epoch))
+        if not is_attention_phase:
+            pbar = tqdm(range(steps_per_epoch))
+        else:
+            pbar = tqdm(range(100))
 
         landmarks_triplet_generator.images_per_class = images_per_class[(e + start_epoch) % len(images_per_class)]
         landmarks_triplet_generator.mining_batch_size = mining_batch_size[(e + start_epoch) % len(mining_batch_size)]
@@ -269,7 +280,7 @@ if train:
 
             # loss
             if not memory_saving:
-                features = vladnet.forward(batch)
+                features = vladnet.forward(batch, is_attention_phase)
                 d_a = features[0:batch_size]
                 d_p = features[batch_size:batch_size*2]
                 d_n = features[batch_size*2:batch_size*3]
@@ -277,6 +288,7 @@ if train:
                 loss_s = criterion(d_a, d_p, d_n)
                 loss_s.backward()
             else:
+                raise NotImplemented
                 loss_s = 0.0
                 for a, p, n in zip(a, p, n):
                     a_d = vladnet.forward(a.unsqueeze(0).to(device))

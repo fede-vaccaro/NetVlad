@@ -24,6 +24,7 @@ from revisitop_utils.dataset import configdataset
 from revisitop_utils.download import download_datasets
 import paths
 
+
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
@@ -258,12 +259,11 @@ if __name__ == '__main__':
     resolutions = []
 
     if use_multi_resolution:
-        resolutions += [3 / 2, 1, 2/3]
+        resolutions += [3 / 2, 1, 2 / 3]
     else:
         resolutions += [1]
 
-
-    resolutions = [r*side_res for r in resolutions]
+    resolutions = [r * side_res for r in resolutions]
 
     # extract queries
     print("Extracting query images")
@@ -280,7 +280,8 @@ if __name__ == '__main__':
         transform = vladnet.get_transform(res_)
         config_dataset.transform = transform
 
-        Q = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader, n_steps=n_steps_queries, verbose=True)
+        Q = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader,
+                                                 n_steps=n_steps_queries, verbose=True)
         Q_matrix += Q
 
     Q_matrix = normalize(Q_matrix)
@@ -305,8 +306,9 @@ if __name__ == '__main__':
         transform = vladnet.get_transform(res_)
         config_dataset.transform = transform
 
-        DB_batch = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader, n_steps=n_steps,
-                                                          verbose=True)
+        DB_batch = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader,
+                                                        n_steps=n_steps,
+                                                        verbose=True)
         DB_matrix += DB_batch
 
     DB_matrix = normalize(DB_matrix)
