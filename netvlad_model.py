@@ -24,7 +24,7 @@ class Attention(nn.Module):
     def __init__(self):
         super(Attention, self).__init__()
 
-        self.conv1 = nn.Conv2d(2048, 256, 3)
+        self.conv1 = nn.Conv2d(2048, 256, 3, padding=1)
         self.attention_score = nn.Conv2d(256, 1, 1)
 
     def forward(self, x):
