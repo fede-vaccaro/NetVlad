@@ -59,8 +59,8 @@ def main():
     def get_imlist(path):
         return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
 
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+    #os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    #os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
 
     print("Loading image dict")
 
@@ -95,7 +95,7 @@ def main():
     print("mAP is: {}".format(np.array(APs).mean()))
 
 
-def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336,
+def compute_aps(model, transform, dataset='o', use_power_norm=False, use_multi_resolution=False, base_resolution=336,
                 verbose=False, pca=None):
     path_oxford = paths.path_oxford
     path_paris = paths.path_paris
@@ -104,7 +104,6 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     else:
         dataset_path = path_paris
 
-    base_resolution = model.input_shape
     input_shape_1 = (768, 768, 3)
     input_shape_2 = (504, 504, 3)
     input_shape_3 = (224, 224, 3)
@@ -113,7 +112,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     input_shapes = [input_shape_2, input_shape_3]
 
     print("Loading images at shape: {}".format(base_resolution))
-    image_folder = folder.ImageFolder(root=dataset_path, transform=model.full_transform)
+    image_folder = folder.ImageFolder(root=dataset_path, transform=transform)
     gen = torch.utils.data.DataLoader(
         image_folder,
         batch_size=batch_size,
@@ -123,7 +122,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     print("Computing descriptors")
     img_list = image_folder.imgs
     n_steps = math.ceil(len(img_list) / batch_size)
-    all_feats = model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
+    all_feats = utils.predict_generator_with_netlvad(model, generator=gen, n_steps=n_steps, verbose=verbose, device="cuda")
     if use_multi_resolution:
         for shape in input_shapes:
             print("Loading images at shape: {}".format(shape))
@@ -135,7 +134,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
                 shuffle=False,
             )
             print("Computing descriptors")
-            all_feats += model.predict_generator_with_netlvad(gen, n_steps=n_steps, verbose=verbose)
+            all_feats += utils.predict_generator_with_netlvad(model, gen, n_steps=n_steps, verbose=verbose)
     all_feats = normalize(all_feats)
     if pca is not None:
         if not os.path.isfile(pca):
@@ -160,7 +159,7 @@ def compute_aps(model, dataset='o', use_power_norm=False, use_multi_resolution=F
     # nbrs = NearestNeighbors(n_neighbors=len(img_list), metric='cosine').fit(all_feats)
     # distances, indices = nbrs.kneighbors(all_feats)
 
-    distances, indices = my_utils.torch_nn(all_feats, verbose=False)
+    distances, indices = my_utils.torch_nn(all_feats, verbose=False, device='cuda')
 
     APs = []
     queries = {}

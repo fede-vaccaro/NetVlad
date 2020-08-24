@@ -33,9 +33,9 @@ images_per_class: 15
 # training parameters
 description: "resnet_relu_batch_size_8000_res512"
 minibatch_size: 6
-memory_saving: true
+memory_saving: false
 steps_per_epoch: 400
-n_epochs: 400
+n_epochs: 241
 checkpoint_freq: 20
 lr:
   step_frequency: 120

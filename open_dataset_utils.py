@@ -15,6 +15,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 from torch.utils import data
 
+import utils
 import netvlad_model as nm
 import paths
 
@@ -34,8 +35,8 @@ def show_triplet(triplet):
     time.sleep(5)
 
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 def preprocess_input(x):
@@ -123,8 +124,8 @@ class ImagesFromListDataset(data.Dataset):
             return im
 
 
-def torch_nn(feats, verbose=True):
-    feats = torch.Tensor(feats).cuda()
+def torch_nn(feats, device, verbose=True):
+    feats = torch.Tensor(feats).to(device)
     if verbose:
         print("Mining - Computing distances")
     distances = (feats.mm(feats.t())).cpu()
@@ -136,7 +137,7 @@ def torch_nn(feats, verbose=True):
 
 
 class LandmarkTripletGenerator():
-    def __init__(self, train_dir, model, mining_batch_size=2048, minibatch_size=24, images_per_class=10,
+    def __init__(self, train_dir, model, transform, device, mining_batch_size=2048, minibatch_size=24, images_per_class=10,
                  semi_hard_prob=0.5, threshold=20, verbose=False, use_crop=False, print_statistics=False):
 
         self.print_statistics = print_statistics
@@ -151,16 +152,17 @@ class LandmarkTripletGenerator():
         # self.loader = Loader(batch_size=mining_batch_size, classes=classes, n_classes=n_classes, train_dir=train_dir,
         #                      transform=model.full_transform)
 
-        self.transform = model.full_transform
+        self.transform = transform
         self.minibatch_size = minibatch_size
         self.model = model
+        self.device = device
         self.verbose = verbose
 
         self.threshold = threshold
         self.semi_hard_prob = semi_hard_prob
 
         target_loss = 0.1
-        delta = 0.04
+        delta = 0.02
 
         self.mining_iterations = 0
 
@@ -222,10 +224,13 @@ class LandmarkTripletGenerator():
 
             n_step = math.ceil(len(img_dataset) / b_size)
 
-            feats = self.model.predict_generator_with_netlvad(generator=data_loader, n_steps=n_step,
-                                                              verbose=self.verbose)
+            feats = utils.predict_generator_with_netlvad(generator=data_loader,
+                                                         n_steps=n_step,
+                                                         model=self.model,
+                                                         device=self.device,
+                                                         verbose=self.verbose)
 
-            distances, indices = torch_nn(feats, verbose=self.verbose)
+            distances, indices = torch_nn(feats, device=self.device, verbose=self.verbose)
 
             # if self.verbose:
             #     print("Fitting NNs")
@@ -274,8 +279,8 @@ class LandmarkTripletGenerator():
                         d_a_p_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_pos]), 0.0))
                         d_a_n_2 = np.max((2.0 - 2.0 * np.float64(distances[i][j_neg]), 0.0))
 
-                        d_a_p = d_a_p_2
-                        d_a_n = d_a_n_2
+                        d_a_p = np.sqrt(d_a_p_2)
+                        d_a_n = np.sqrt(d_a_n_2)
 
                         loss = 0.1 + d_a_p_2 - d_a_n_2
 
@@ -312,7 +317,7 @@ class LandmarkTripletGenerator():
 
             del distances
             del indices
-            torch.cuda.empty_cache()
+            # torch.cuda.empty_cache()
 
             for i, t in enumerate(triplets):
                 anchor_label = t[3]
@@ -338,7 +343,7 @@ class LandmarkTripletGenerator():
             # select just K different classes
             # K_classes = 256
             n_triplets = len(im_triplets)
-            K_classes = min(n_triplets, 240)
+            K_classes = min(n_triplets, 256)
             im_triplets = im_triplets[:K_classes]
 
             anchors = [t[0] for t in im_triplets]

@@ -20,9 +20,9 @@ from torch.utils import data
 
 import netvlad_model as nm
 import utils
-from revisitop_utils.dataset import configdataset
-from revisitop_utils.download import download_datasets
-import paths
+from dataset import configdataset
+from download import download_datasets
+
 
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
@@ -105,11 +105,12 @@ def get_scaled_query(img, target_side):
 
 
 class ConfigDataset(data.Dataset):
-    def __init__(self, cfg, transform):
+    def __init__(self, cfg, transform, scale=1.0):
         self.cfg = cfg
 
         self.query = False
         self.transform = transform
+        self.scale = scale
 
     def __len__(self):
         if self.query:
@@ -120,43 +121,22 @@ class ConfigDataset(data.Dataset):
     def __getitem__(self, i):
         if self.query:
             qim = pil_loader(self.cfg['qim_fname'](self.cfg, i)).crop(self.cfg['gnd'][i]['bbx'])
-            qim = make_square(qim)
+            # qim = make_square(qim)
+            new_size = (qim.size[0]*self.scale, qim.size[1]*self.scale)
+            new_size = (new_size[0].__int__(), new_size[1].__int__())
+            qim = qim.resize(new_size, resample=Image.ANTIALIAS)
+
             qim = self.transform(qim)
             return qim
         else:
             im = pil_loader(self.cfg['im_fname'](self.cfg, i))
+            new_size = (im.size[0]*self.scale, im.size[1]*self.scale)
+            new_size = (new_size[0].__int__(), new_size[1].__int__())
+            qim = im.resize(new_size, resample=Image.ANTIALIAS)
+
             im = self.transform(im)
             return im
 
-
-def extract_feat(model, img, multiresolution=False, pca=None, query=False):
-    with torch.no_grad():
-        scaling_factor = 0.70
-        base_side = model.input_shape[0]
-        img_1 = model.get_transform(int(base_side * scaling_factor) if query else base_side)(img).unsqueeze(0)
-        desc = model.predict_with_netvlad(img_1)
-
-        if multiresolution:
-            img_2 = model.get_transform(int(base_side * 3 / 2 * scaling_factor) if query else int(base_side * 3 / 2))(
-                img).unsqueeze(0)
-            desc += model.predict_with_netvlad(img_2)
-
-            img_3 = model.get_transform(int(base_side * 2 / 3 * scaling_factor) if query else int(base_side * 2 / 3))(
-                img).unsqueeze(0)
-            desc += model.predict_with_netvlad(img_3)
-
-            desc /= np.linalg.norm(desc, ord=2)
-
-        desc_local = desc
-
-        if pca is not None:
-            desc = utils.transform(desc, mean=pca["mean"], components=pca["components"],
-                                   explained_variance=pca["explained_variance"], whiten=True,
-                                   pow_whiten=0.5)
-
-        desc /= np.linalg.norm(desc, ord=2)
-
-        return desc
 
 
 if __name__ == '__main__':
@@ -202,8 +182,6 @@ if __name__ == '__main__':
     # Set data folder, change if you have downloaded the data somewhere else
     data_root = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'data')
     # Check, and, if necessary, download test data (Oxford and Pairs) and revisited annotation
-    if paths.path_revisitop is not None:
-        data_root = paths.path_revisitop
     download_datasets(data_root)
 
     # Set test dataset: roxford5k | rparis6k
@@ -249,21 +227,20 @@ if __name__ == '__main__':
     pca['components'] = components
     pca['explained_variance'] = explained_variance
 
-    batch_size = 16
-    config_dataset = ConfigDataset(cfg=cfg, transform=None)
-    config_loader = data.DataLoader(dataset=config_dataset, num_workers=8, pin_memory=True, shuffle=False,
+    batch_size = 1
+    config_dataset = ConfigDataset(cfg=cfg, transform=vladnet.get_transform())
+    config_loader = data.DataLoader(dataset=config_dataset, num_workers=16, pin_memory=True, shuffle=False,
                                     batch_size=batch_size)
 
     query_scaling = 0.7
     resolutions = []
 
     if use_multi_resolution:
-        resolutions += [3 / 2, 1, 2/3]
+        resolutions += [np.sqrt(2), 1, 1/np.sqrt(2)]
     else:
         resolutions += [1]
 
-
-    resolutions = [r*side_res for r in resolutions]
+    # resolutions = [r*side_res for r in resolutions]
 
     # extract queries
     print("Extracting query images")
@@ -275,12 +252,13 @@ if __name__ == '__main__':
     n_steps_queries = int(np.ceil(len(config_dataset) / batch_size))
 
     for res in resolutions:
-        res_ = int(res * query_scaling)
-        print("Extracting at resolution: {}".format(res_))
-        transform = vladnet.get_transform(res_)
-        config_dataset.transform = transform
+        # res_ = int(res * query_scaling)
+        # print("Extracting at resolution: {}".format(res_))
+        # transform = vladnet.get_transform(res_)
+        config_dataset.scale = res
 
-        Q = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader, n_steps=n_steps_queries, verbose=True)
+        Q = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader,
+                                                 n_steps=n_steps_queries, verbose=True)
         Q_matrix += Q
 
     Q_matrix = normalize(Q_matrix)
@@ -300,13 +278,15 @@ if __name__ == '__main__':
     n_steps = int(np.ceil(len(config_dataset) / batch_size))
 
     for res in resolutions:
-        res_ = int(res)
-        print("Extracting at resolution: {}".format(res_))
-        transform = vladnet.get_transform(res_)
-        config_dataset.transform = transform
+        # res_ = int(res) ro
+        # print("Extracting at resolution: {}".format(res_))
+        # transform = vladnet.get_transform(res_)
+        # config_dataset.transform = transform
+        config_dataset.scale = res
 
-        DB_batch = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader, n_steps=n_steps,
-                                                          verbose=True)
+        DB_batch = utils.predict_generator_with_netlvad(model=vladnet_parallel, device='cuda', generator=config_loader,
+                                                        n_steps=n_steps,
+                                                        verbose=True)
         DB_matrix += DB_batch
 
     DB_matrix = normalize(DB_matrix)

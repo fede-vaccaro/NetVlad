@@ -1,6 +1,6 @@
 import argparse
 import os
-
+import utils
 import h5py
 import torch
 import yaml
@@ -52,26 +52,34 @@ def main():
 
     vladnet = nm.VLADNet(**network_conf)
 
+    transform = vladnet.full_transform
+    device = "cuda"
+
+    if torch.cuda.device_count() > 1:
+        print("Available GPUS: ", torch.cuda.device_count())
+        vladnet = torch.nn.DataParallel(vladnet, device_ids=range(torch.cuda.device_count()))
+
+
     weight_name = model_name
     print("Loading weights: " + weight_name)
     checkpoint = torch.load(model_name)
     vladnet.load_state_dict(checkpoint['model_state_dict'])
-    vladnet.cuda()
+    vladnet.to(device)
 
     print("PCA is going to be saved to: ", "pca_{}.h5".format(weight_name.split('/')[-1]))
 
-    train_pca(vladnet, "pca_{}.h5".format(weight_name.split('/')[-1]))
+    train_pca(vladnet, "pca_{}.h5".format(weight_name.split('/')[-1]), transform)
 
 
-def train_pca(vladnet, out_name):
-    image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=vladnet.full_transform)
+def train_pca(vladnet, out_name, transform):
+    image_folder = folder.ImageFolder(root=paths.landmarks_path, transform=transform)
     gen = torch.utils.data.DataLoader(
         image_folder,
         batch_size=16,
         num_workers=32,
         shuffle=True,
     )
-    all_feats = vladnet.predict_generator_with_netlvad(generator=gen, n_steps=4096)
+    all_feats = utils.predict_generator_with_netlvad(device='cuda', generator=gen, n_steps=4096, model=vladnet)
     print("All descs shape: ", all_feats.shape)
     print("Sampling local features")
     print("Computing PCA")
