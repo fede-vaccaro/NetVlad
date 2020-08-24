@@ -206,7 +206,7 @@ class NetVladBase(nn.Module):
                     att_ctx = nullcontext()
                 else:
                     net_ctx = nullcontext()
-                    att_ctx = torch.no_grad()
+                    att_ctx = nullcontext()
 
                 with net_ctx:
                     x = self.base_features(x)
