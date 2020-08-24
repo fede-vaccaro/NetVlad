@@ -20,9 +20,9 @@ from torch.utils import data
 
 import netvlad_model as nm
 import utils
-from dataset import configdataset
-from download import download_datasets
-
+from revisitop_utils.dataset import configdataset
+from revisitop_utils.download import download_datasets
+import paths
 
 def get_imlist(path):
     return [f[:-len(".jpg")] for f in os.listdir(path) if f.endswith(".jpg")]
@@ -202,6 +202,8 @@ if __name__ == '__main__':
     # Set data folder, change if you have downloaded the data somewhere else
     data_root = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'data')
     # Check, and, if necessary, download test data (Oxford and Pairs) and revisited annotation
+    if paths.path_revisitop is not None:
+        data_root = paths.path_revisitop
     download_datasets(data_root)
 
     # Set test dataset: roxford5k | rparis6k

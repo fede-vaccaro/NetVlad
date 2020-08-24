@@ -278,7 +278,7 @@ if __name__ == '__main__':
     n_steps = int(np.ceil(len(config_dataset) / batch_size))
 
     for res in resolutions:
-        # res_ = int(res)
+        # res_ = int(res) ro
         # print("Extracting at resolution: {}".format(res_))
         # transform = vladnet.get_transform(res_)
         # config_dataset.transform = transform

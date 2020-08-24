@@ -209,7 +209,7 @@ if train:
 
     # TODO fix
     if compute_validation:
-        test_generator = my_utils.evaluation_triplet_generator(paths.holidays_small_labeled_path,
+        test_generator = my_utils.evaluation_triplet_generator(paths.holidays_pic_path,
                                                                model=vladnet,
                                                                netbatch_size=minibatch_size)
 
