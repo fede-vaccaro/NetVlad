@@ -1,14 +1,14 @@
 # architecture configuration
 network:
   architecture: resnet101 # vgg16, resnet101,
-  pooling_type: netvlad
+  pooling_type: gem
   use_relu: true
   n_clusters: 64
   split_vlad: 512
   post_pca:
     active: false
   poolings:
-    active: true
+    active: false
     pool_1_shape: 2
     pool_2_shape: 3
     stride_1: 1
@@ -21,7 +21,7 @@ network:
     active: false
     pool_size: 6
     stride: 4
-input-shape: 512
+input-shape: 768
 
 # mining parameters
 threshold: 20
