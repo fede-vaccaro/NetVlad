@@ -21,6 +21,7 @@ import utils
 from evaluate_dataset import compute_aps
 from torch_triplet_loss import TripletLoss
 import metrics
+from Smooth_AP_loss import SmoothAP
 
 ap = argparse.ArgumentParser()
 
@@ -158,7 +159,9 @@ transform = vladnet.train_transform
 test_transform = vladnet.full_transform
 n_classes = len(os.listdir(paths.landmarks_path))
 
-arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.1)
+# arc_loss = metrics.ArcMarginProduct(2048, n_classes, s=30, m=0.1)
+
+smooth_ap = SmoothAP(batch_size=minibatch_size*2, feat_dims=2048,anneal=0.01, num_id=minibatch_size)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -172,14 +175,12 @@ if model_name is not None:
     checkpoint = torch.load(model_name, map_location='cpu')
     vladnet.load_state_dict(checkpoint['model_state_dict'])
     adam.load_state_dict(checkpoint['optimizer_state_dict'])
-    arc_loss.load_state_dict(checkpoint['arc_loss_state_dict'])
     start_epoch = checkpoint['epoch'] + 1
     print("Resuming training from epoch {} at iteration {}".format(start_epoch, steps_per_epoch * start_epoch))
 
 if torch.cuda.device_count() > 1:
     print("Available GPUS: ", torch.cuda.device_count())
     vladnet = torch.nn.DataParallel(vladnet, device_ids=range(torch.cuda.device_count()))
-    arc_loss = torch.nn.DataParallel(arc_loss, device_ids=range(torch.cuda.device_count()))
 
 print("Defining opt")
 for state in adam.state.values():
@@ -233,7 +234,7 @@ if train:
                                             verbose=True)
 
     print("Starting mAP: ", starting_map)
-    arc_loss.to(device)
+    # arc_loss.to(device)
     # load generators
     landmarks_triplet_generator = my_utils.LandmarkTripletGenerator(train_dir=paths.landmarks_path,
                                                                     model=vladnet,
@@ -256,6 +257,14 @@ if train:
     #     shuffle=True,
     #     pin_memory=True
     # )
+
+_rearrange_array = []
+for i in range(minibatch_size):
+    _rearrange_array += [i, i + minibatch_size]
+
+def rearrange(feat):
+    assert feat.shape[0] == len(_rearrange_array)
+    return feat[_rearrange_array]
 
 for e in range(epochs):
     t0 = time.time()
@@ -285,14 +294,17 @@ for e in range(epochs):
             # a_d, p_d, n_d = vladnet.get_siamese_output(a.cuda(), p.cuda(), n.cuda())
             labels_batch = labels_batch.to(device)
             imgs_features = vladnet.forward(imgs_batch.to(device))
-            output = arc_loss(imgs_features, labels_batch)
+
+            labels_batch = rearrange(labels_batch[:minibatch_size*2]) # for testing purposes
+
+            output = smooth_ap(rearrange(imgs_features[:minibatch_size*2])) # , labels_batch)
 
             loss_tl = criterion_tl(imgs_features[:minibatch_size],
                                    imgs_features[minibatch_size:minibatch_size * 2],
                                    imgs_features[minibatch_size * 2:minibatch_size * 3])
-            loss_ce = criterion_ce(output, labels_batch)
+            loss_smoothap = output
 
-            loss_s = loss_tl*0.1 + loss_ce
+            loss_s = loss_tl + loss_smoothap
 
             # torch.cuda.synchronize()
 

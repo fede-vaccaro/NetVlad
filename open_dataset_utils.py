@@ -356,6 +356,7 @@ class LandmarkTripletGenerator():
 
             labels_ap = [t[0] for t in im_labels]
             labels_n = [t[2] for t in im_labels]
+            labels_n = [t[2] for t in im_labels]
 
             # transform = self.model.train_transform if self.use_crop else self.transform
             img_a = ImagesFromListDataset(image_list=anchors, label_list=labels_ap,

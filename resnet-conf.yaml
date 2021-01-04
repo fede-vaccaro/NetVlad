@@ -1,14 +1,14 @@
 # architecture configuration
 network:
   architecture: resnet101 # vgg16, resnet101,
-  pooling_type: netvlad
+  pooling_type: gem
   use_relu: true
   n_clusters: 64
   split_vlad: 512
   post_pca:
     active: false
   poolings:
-    active: true
+    active: false
     pool_1_shape: 2
     pool_2_shape: 3
     stride_1: 1
@@ -32,11 +32,11 @@ images_per_class: 16
 
 # training parameters
 description: "resnet_res336_arcface_01-1"
-minibatch_size: 4
+minibatch_size: 6
 memory_saving: false
-steps_per_epoch: 150000 
-n_epochs: 20
-checkpoint_freq: 1
+steps_per_epoch: 400
+n_epochs: 240
+checkpoint_freq: 5
 lr:
   step_frequency: 40
   warm-up: true
