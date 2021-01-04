@@ -38,7 +38,7 @@ steps_per_epoch: 400
 n_epochs: 240
 checkpoint_freq: 5
 lr:
-  step_frequency: 40
+  step_frequency: 120
   warm-up: true
   warm-up-steps: 2000 # if warm-up is active
   max_value: 1e-5

@@ -326,14 +326,14 @@ for e in range(epochs):
         if use_warm_up:
             lr_scheduler.step(epoch=(e + start_epoch) * steps_per_epoch + s)
 
-        losses_e.append(float(loss_ce))
+        losses_e.append(float(loss_s))
 
         it = s + (e + start_epoch) * steps_per_epoch
         if use_warm_up:
             lr = lr_lambda(it)
         else:
             lr = max_lr
-        description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, loss_s,
+        description_tqdm = "Loss at epoch {0}/{3} step {1}: {2:.4f}. Lr: {4}".format(e + start_epoch, s, float(loss_s),
                                                                                      epochs + start_epoch, lr)
         pbar.set_description(description_tqdm)
 
@@ -386,7 +386,6 @@ for e in range(epochs):
             'epoch': e + start_epoch,
             'model_state_dict': vladnet.state_dict(),
             'optimizer_state_dict': adam.state_dict(),
-            'arc_loss_state_dict': arc_loss.state_dict(),
         }, model_name)
         print("Saving model to: {} (checkpoint)".format(model_name))
 
