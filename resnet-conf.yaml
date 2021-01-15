@@ -21,7 +21,7 @@ network:
     active: false
     pool_size: 6
     stride: 4
-input-shape: 336
+input-shape: 512
 
 # mining parameters
 threshold: 20
